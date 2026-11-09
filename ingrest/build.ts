@@ -110,6 +110,8 @@ fs.writeFileSync(path.join(values.out!, "report.md"), report ? report + "\n" : "
 if (report) console.error(report);
 
 const changed = !refused && all.join("\n") !== before.join("\n");
+const resignAfter = 3 * 24 * 3600 * 1000;
+const publish = !refused && (changed || !previous || Date.now() - Date.parse(previous.generated_at) > resignAfter);
 if (!refused) {
   const header = [
     `# Trusted bot IP ranges, generated ${now}`,
@@ -119,6 +121,6 @@ if (!refused) {
   fs.writeFileSync(path.join(values.out!, "trusted-bots.txt"), [...header, ...all].join("\n") + "\n");
   fs.writeFileSync(path.join(values.out!, "trusted-bots.json"), JSON.stringify(result, null, 2) + "\n");
 }
-console.log(`${all.length} ranges from ${Object.keys(result.bots).length} bots, changed: ${changed}`);
-if (process.env.GITHUB_OUTPUT) fs.appendFileSync(process.env.GITHUB_OUTPUT, `changed=${changed}\nrefused=${refused}\n`);
+console.log(`${all.length} ranges from ${Object.keys(result.bots).length} bots, changed: ${changed}, publish: ${publish}`);
+if (process.env.GITHUB_OUTPUT) fs.appendFileSync(process.env.GITHUB_OUTPUT, `changed=${changed}\npublish=${publish}\nrefused=${refused}\n`);
 process.exit(refused ? 3 : 0);

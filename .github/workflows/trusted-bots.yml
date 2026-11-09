@@ -71,7 +71,7 @@ jobs:
           node ingrest/build.ts --previous prev/trusted-bots.json --out dist ${{ inputs.allow_growth && '--allow-growth' || '' }} || code=$?
           [ "$code" = 0 ] || [ "$code" = 3 ]
       - name: Sign and publish
-        if: steps.build.outputs.changed == 'true'
+        if: steps.build.outputs.publish == 'true'
         env:
           MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
         run: |

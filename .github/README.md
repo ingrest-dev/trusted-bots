@@ -43,7 +43,7 @@ A daily workflow ([`trusted-bots.yml`](workflows/trusted-bots.yml)):
 1. Merges new upstream commits only if they touch neither `.github/` nor `ingrest/` and every source of our bots stays plain https on its allowed host with a supported selector (`ingrest/check.ts`). Anything else is held and reported in an issue. Code from upstream is never run.
 2. Downloads every source and keeps a range only if it is valid, not reserved, and no wider than /16 (IPv4) or /28 (IPv6) (`ingrest/build.ts`). A source that fails keeps that bot's ranges from the previous build, marked `stale_since`.
 3. Refuses to publish when the address count more than doubles; a maintainer checks the change and reruns with `allow_growth`.
-4. Signs both files with minisign and replaces the release assets only when the ranges changed.
+4. Signs both files with minisign and replaces the release assets when the ranges changed, and at least every 3 days so a signature is never old. Consumers should reject a file signed more than 14 days ago: it means the builds stopped.
 
 Problems of the last run are kept in one open issue labeled `build-report`, closed after a clean run.
 
