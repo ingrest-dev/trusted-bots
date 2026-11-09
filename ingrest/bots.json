@@ -1,37 +1,455 @@
 {
-  "google-crawler": ["developers.google.com"],
-  "google-crawler-image": ["developers.google.com"],
-  "google-crawler-mobile": ["developers.google.com"],
-  "google-crawler-news": ["developers.google.com"],
-  "google-crawler-other": ["developers.google.com"],
-  "google-crawler-store": ["developers.google.com"],
-  "google-crawler-video": ["developers.google.com"],
-  "google-inspection-tool": ["developers.google.com"],
-  "google-feedfetcher": ["developers.google.com"],
-  "google-site-verification": ["developers.google.com"],
-  "bing-crawler": ["www.bing.com"],
-  "bing-preview": ["www.bing.com"],
-  "microsoft-preview": ["www.bing.com"],
-  "apple-crawler": ["search.developer.apple.com"],
-  "duckduckgo-crawler": ["duckduckgo.com"],
-  "duckassist-bot": ["duckduckgo.com"],
-  "mojeek-crawler": ["www.mojeek.com"],
-  "anthropic-crawler": ["claude.com"],
-  "anthropic-crawler-search": ["claude.com"],
-  "anthropic-crawler-user": ["claude.com"],
-  "openai-crawler": ["openai.com"],
-  "openai-crawler-search": ["openai.com"],
-  "openai-crawler-user": ["openai.com"],
-  "perplexity-crawler": ["www.perplexity.ai"],
-  "perplexity-user": ["www.perplexity.ai"],
-  "commoncrawl-crawler": ["index.commoncrawl.org"],
-  "telegram-crawler": ["core.telegram.org"],
-  "uptimerobot-monitor": ["uptimerobot.com"],
-  "betterstack-monitor": ["uptime.betterstack.com"],
-  "pingdom-crawler": ["my.pingdom.com"],
-  "statuscake-monitor": ["app.statuscake.com"],
-  "checkly-monitor": ["api.checklyhq.com"],
-  "sentry-uptime-monitor": ["sentry.io"],
-  "github-hookshot": ["api.github.com"],
-  "stripe-webhook": ["stripe.com"]
+  "google-crawler": {
+    "categories": [
+      "google",
+      "search-engine"
+    ],
+    "sources": [
+      {
+        "type": "http-json",
+        "url": "https://developers.google.com/static/crawling/ipranges/common-crawlers.json",
+        "selector": "$.prefixes[*][\"ipv6Prefix\",\"ipv4Prefix\"]"
+      }
+    ]
+  },
+  "google-crawler-image": {
+    "categories": [
+      "google",
+      "search-engine"
+    ],
+    "sources": [
+      {
+        "type": "http-json",
+        "url": "https://developers.google.com/static/crawling/ipranges/common-crawlers.json",
+        "selector": "$.prefixes[*][\"ipv6Prefix\",\"ipv4Prefix\"]"
+      }
+    ]
+  },
+  "google-crawler-mobile": {
+    "categories": [
+      "google",
+      "search-engine"
+    ],
+    "sources": [
+      {
+        "type": "http-json",
+        "url": "https://developers.google.com/static/crawling/ipranges/common-crawlers.json",
+        "selector": "$.prefixes[*][\"ipv4Prefix\",\"ipv6Prefix\"]"
+      }
+    ]
+  },
+  "google-crawler-news": {
+    "categories": [
+      "google",
+      "search-engine"
+    ],
+    "sources": [
+      {
+        "type": "http-json",
+        "url": "https://developers.google.com/static/crawling/ipranges/common-crawlers.json",
+        "selector": "$.prefixes[*][\"ipv6Prefix\",\"ipv4Prefix\"]"
+      }
+    ]
+  },
+  "google-crawler-other": {
+    "categories": [
+      "google",
+      "search-engine"
+    ],
+    "sources": [
+      {
+        "type": "http-json",
+        "url": "https://developers.google.com/static/crawling/ipranges/common-crawlers.json",
+        "selector": "$.prefixes[*][\"ipv6Prefix\",\"ipv4Prefix\"]"
+      }
+    ]
+  },
+  "google-crawler-store": {
+    "categories": [
+      "google",
+      "search-engine"
+    ],
+    "sources": [
+      {
+        "type": "http-json",
+        "url": "https://developers.google.com/static/crawling/ipranges/common-crawlers.json",
+        "selector": "$.prefixes[*][\"ipv6Prefix\",\"ipv4Prefix\"]"
+      }
+    ]
+  },
+  "google-crawler-video": {
+    "categories": [
+      "google",
+      "search-engine"
+    ],
+    "sources": [
+      {
+        "type": "http-json",
+        "url": "https://developers.google.com/static/crawling/ipranges/common-crawlers.json",
+        "selector": "$.prefixes[*][\"ipv6Prefix\",\"ipv4Prefix\"]"
+      }
+    ]
+  },
+  "google-inspection-tool": {
+    "categories": [
+      "google",
+      "search-engine"
+    ],
+    "sources": [
+      {
+        "type": "http-json",
+        "url": "https://developers.google.com/static/crawling/ipranges/common-crawlers.json",
+        "selector": "$.prefixes[*][\"ipv6Prefix\",\"ipv4Prefix\"]"
+      }
+    ]
+  },
+  "google-feedfetcher": {
+    "categories": [
+      "google",
+      "feedfetcher"
+    ],
+    "sources": [
+      {
+        "type": "http-json",
+        "url": "https://developers.google.com/static/crawling/ipranges/user-triggered-fetchers.json",
+        "selector": "$.prefixes[*][\"ipv6Prefix\",\"ipv4Prefix\"]"
+      },
+      {
+        "type": "http-json",
+        "url": "https://developers.google.com/static/crawling/ipranges/user-triggered-fetchers-google.json",
+        "selector": "$.prefixes[*][\"ipv6Prefix\",\"ipv4Prefix\"]"
+      }
+    ]
+  },
+  "google-site-verification": {
+    "categories": [
+      "google",
+      "monitor"
+    ],
+    "sources": [
+      {
+        "type": "http-json",
+        "url": "https://developers.google.com/static/crawling/ipranges/user-triggered-fetchers.json",
+        "selector": "$.prefixes[*][\"ipv6Prefix\",\"ipv4Prefix\"]"
+      },
+      {
+        "type": "http-json",
+        "url": "https://developers.google.com/static/crawling/ipranges/user-triggered-fetchers-google.json",
+        "selector": "$.prefixes[*][\"ipv6Prefix\",\"ipv4Prefix\"]"
+      }
+    ]
+  },
+  "bing-crawler": {
+    "categories": [
+      "microsoft",
+      "search-engine"
+    ],
+    "sources": [
+      {
+        "type": "http-json",
+        "url": "https://www.bing.com/toolbox/bingbot.json",
+        "selector": "$.prefixes[*][\"ipv6Prefix\",\"ipv4Prefix\"]"
+      }
+    ]
+  },
+  "bing-preview": {
+    "categories": [
+      "microsoft",
+      "preview"
+    ],
+    "sources": [
+      {
+        "type": "http-json",
+        "url": "https://www.bing.com/toolbox/bingbot.json",
+        "selector": "$.prefixes[*][\"ipv6Prefix\",\"ipv4Prefix\"]"
+      }
+    ]
+  },
+  "microsoft-preview": {
+    "categories": [
+      "microsoft",
+      "preview"
+    ],
+    "sources": [
+      {
+        "type": "http-json",
+        "url": "https://www.bing.com/toolbox/bingbot.json",
+        "selector": "$.prefixes[*][\"ipv6Prefix\",\"ipv4Prefix\"]"
+      }
+    ]
+  },
+  "apple-crawler": {
+    "categories": [
+      "apple",
+      "search-engine"
+    ],
+    "sources": [
+      {
+        "type": "http-json",
+        "url": "https://search.developer.apple.com/applebot.json",
+        "selector": "$.prefixes[*][\"ipv4Prefix\",\"ipv6Prefix\"]"
+      }
+    ]
+  },
+  "duckduckgo-crawler": {
+    "categories": [
+      "search-engine"
+    ],
+    "sources": [
+      {
+        "type": "http-json",
+        "url": "https://duckduckgo.com/duckduckbot.json",
+        "selector": "$.prefixes[*][\"ipv4Prefix\",\"ipv6Prefix\"]"
+      }
+    ]
+  },
+  "duckassist-bot": {
+    "categories": [
+      "ai",
+      "search-engine"
+    ],
+    "sources": [
+      {
+        "type": "http-json",
+        "url": "https://duckduckgo.com/duckassistbot.json",
+        "selector": "$.prefixes[*][\"ipv4Prefix\",\"ipv6Prefix\"]"
+      }
+    ]
+  },
+  "mojeek-crawler": {
+    "categories": [
+      "search-engine"
+    ],
+    "sources": [
+      {
+        "type": "http-json",
+        "url": "https://www.mojeek.com/mojeekbot.json",
+        "selector": "$.prefixes[*][\"ipv4Prefix\",\"ipv6Prefix\"]"
+      }
+    ]
+  },
+  "anthropic-crawler": {
+    "categories": [
+      "ai"
+    ],
+    "sources": [
+      {
+        "type": "http-json",
+        "url": "https://claude.com/crawling/bots.json",
+        "selector": "$.prefixes[*][\"ipv6Prefix\",\"ipv4Prefix\"]"
+      }
+    ]
+  },
+  "anthropic-crawler-search": {
+    "categories": [
+      "ai"
+    ],
+    "sources": [
+      {
+        "type": "http-json",
+        "url": "https://claude.com/crawling/bots.json",
+        "selector": "$.prefixes[*][\"ipv6Prefix\",\"ipv4Prefix\"]"
+      }
+    ]
+  },
+  "anthropic-crawler-user": {
+    "categories": [
+      "ai"
+    ],
+    "sources": [
+      {
+        "type": "http-json",
+        "url": "https://claude.com/crawling/bots.json",
+        "selector": "$.prefixes[*][\"ipv6Prefix\",\"ipv4Prefix\"]"
+      }
+    ]
+  },
+  "openai-crawler": {
+    "categories": [
+      "ai"
+    ],
+    "sources": [
+      {
+        "type": "http-json",
+        "url": "https://openai.com/gptbot.json",
+        "selector": "$.prefixes[*][\"ipv6Prefix\",\"ipv4Prefix\"]"
+      }
+    ]
+  },
+  "openai-crawler-search": {
+    "categories": [
+      "ai",
+      "search-engine"
+    ],
+    "sources": [
+      {
+        "type": "http-json",
+        "url": "https://openai.com/searchbot.json",
+        "selector": "$.prefixes[*][\"ipv6Prefix\",\"ipv4Prefix\"]"
+      }
+    ]
+  },
+  "openai-crawler-user": {
+    "categories": [
+      "ai"
+    ],
+    "sources": [
+      {
+        "type": "http-json",
+        "url": "https://openai.com/chatgpt-user.json",
+        "selector": "$.prefixes[*][\"ipv6Prefix\",\"ipv4Prefix\"]"
+      }
+    ]
+  },
+  "perplexity-crawler": {
+    "categories": [
+      "ai"
+    ],
+    "sources": [
+      {
+        "type": "http-json",
+        "url": "https://www.perplexity.ai/perplexitybot.json",
+        "selector": "$.prefixes[*].ipv4Prefix"
+      }
+    ]
+  },
+  "perplexity-user": {
+    "categories": [
+      "ai"
+    ],
+    "sources": [
+      {
+        "type": "http-json",
+        "url": "https://www.perplexity.ai/perplexity-user.json",
+        "selector": "$.prefixes[*].ipv4Prefix"
+      }
+    ]
+  },
+  "commoncrawl-crawler": {
+    "categories": [
+      "academic",
+      "ai",
+      "archive"
+    ],
+    "sources": [
+      {
+        "type": "http-json",
+        "url": "https://index.commoncrawl.org/ccbot.json",
+        "selector": "$.prefixes[*][\"ipv4Prefix\",\"ipv6Prefix\"]"
+      }
+    ]
+  },
+  "telegram-crawler": {
+    "categories": [
+      "preview",
+      "social"
+    ],
+    "sources": [
+      {
+        "type": "http-text",
+        "url": "https://core.telegram.org/resources/cidr.txt"
+      }
+    ]
+  },
+  "uptimerobot-monitor": {
+    "categories": [
+      "monitor"
+    ],
+    "sources": [
+      {
+        "type": "http-text",
+        "url": "https://uptimerobot.com/inc/files/ips/IPv4.txt"
+      },
+      {
+        "type": "http-text",
+        "url": "https://uptimerobot.com/inc/files/ips/IPv6.txt"
+      }
+    ]
+  },
+  "betterstack-monitor": {
+    "categories": [
+      "monitor"
+    ],
+    "sources": [
+      {
+        "type": "http-json",
+        "url": "https://uptime.betterstack.com/ips-by-cluster.json",
+        "selector": "$.*[*]"
+      }
+    ]
+  },
+  "pingdom-crawler": {
+    "categories": [
+      "monitor"
+    ],
+    "sources": [
+      {
+        "type": "http-text",
+        "url": "https://my.pingdom.com/probes/ipv4"
+      },
+      {
+        "type": "http-text",
+        "url": "https://my.pingdom.com/probes/ipv6"
+      }
+    ]
+  },
+  "statuscake-monitor": {
+    "categories": [
+      "monitor"
+    ],
+    "sources": [
+      {
+        "type": "http-json",
+        "url": "https://app.statuscake.com/Workfloor/Locations.php?format=json",
+        "selector": "$[*].ip"
+      }
+    ]
+  },
+  "checkly-monitor": {
+    "categories": [
+      "monitor"
+    ],
+    "sources": [
+      {
+        "type": "http-json",
+        "url": "https://api.checklyhq.com/v1/static-ips",
+        "selector": "$[*]"
+      }
+    ]
+  },
+  "sentry-uptime-monitor": {
+    "categories": [
+      "monitor"
+    ],
+    "sources": [
+      {
+        "type": "http-text",
+        "url": "https://sentry.io/api/0/uptime-ips/"
+      }
+    ]
+  },
+  "github-hookshot": {
+    "categories": [
+      "webhook"
+    ],
+    "sources": [
+      {
+        "type": "http-json",
+        "url": "https://api.github.com/meta",
+        "selector": "$.hooks[*]"
+      }
+    ]
+  },
+  "stripe-webhook": {
+    "categories": [
+      "webhook"
+    ],
+    "sources": [
+      {
+        "type": "http-json",
+        "url": "https://stripe.com/files/ips/ips_webhooks.json",
+        "selector": "$.WEBHOOKS[*]"
+      }
+    ]
+  }
 }

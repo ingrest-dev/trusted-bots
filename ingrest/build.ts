@@ -1,7 +1,9 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { parseArgs } from "node:util";
-import { loadBots, parsePrefix, prefixText, rejectPrefix, select, size, type Prefix, type Source } from "./lib.ts";
+import { loadBots, parsePrefix, prefixText, quote, rejectPrefix, select, size, type Prefix, type Source } from "./lib.ts";
+
+const staleLimit = 14 * 24 * 3600 * 1000;
 
 type BotOut = { categories: string[]; sources: string[]; prefixes: string[]; stale_since?: string };
 type Output = { generated_at: string; bots: Record<string, BotOut> };
@@ -10,7 +12,6 @@ const { values } = parseArgs({
   options: {
     previous: { type: "string" },
     out: { type: "string", default: "dist" },
-    catalog: { type: "string" },
     "allow-growth": { type: "boolean", default: false },
   },
 });
@@ -20,7 +21,7 @@ const problems: string[] = [];
 const previous: Output | undefined =
   values.previous && fs.existsSync(values.previous) ? JSON.parse(fs.readFileSync(values.previous, "utf-8")) : undefined;
 
-const { bots, problems: catalogProblems } = loadBots(values.catalog);
+const { bots, problems: catalogProblems } = loadBots();
 problems.push(...catalogProblems);
 
 async function download(url: string): Promise<string> {
@@ -29,10 +30,16 @@ async function download(url: string): Promise<string> {
     signal: AbortSignal.timeout(30_000),
     headers: { "user-agent": "trusted-bots-builder (+https://github.com/ingrest-dev/trusted-bots)" },
   });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const body = await res.text();
-  if (body.length > 4 << 20) throw new Error("larger than 4 MiB");
-  return body;
+  if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+  const max = 4 << 20;
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for await (const chunk of res.body) {
+    size += chunk.length;
+    if (size > max) throw new Error("larger than 4 MiB");
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks).toString("utf-8");
 }
 
 function entries(src: Source, body: string): string[] {
@@ -50,18 +57,24 @@ async function fromSource(src: Source): Promise<Prefix[]> {
   const key = `${src.url}\n${src.selector ?? ""}`;
   if (!fetched.has(src.url)) fetched.set(src.url, download(src.url));
   const out: Prefix[] = [];
+  let bad = 0;
   for (const raw of entries(src, await fetched.get(src.url)!)) {
     let p: Prefix;
     try {
       p = parsePrefix(raw);
     } catch (e) {
-      problems.push(`${src.url}: ${(e as Error).message}`);
+      bad++;
+      if (bad <= 10) problems.push(`${src.url}: ${(e as Error).message}`);
       continue;
     }
     const why = rejectPrefix(p);
-    if (why) problems.push(`${src.url}: ${prefixText(p)} skipped, ${why}`);
-    else out.push(p);
+    if (why) {
+      if (++bad <= 10) problems.push(`${src.url}: ${prefixText(p)} skipped, ${why}`);
+      continue;
+    }
+    out.push(p);
   }
+  if (bad > 10) problems.push(`${src.url}: ${bad - 10} more bad entries`);
   if (!out.length) throw new Error(`no usable ranges (${key.replace("\n", " ")})`);
   return out;
 }
@@ -81,18 +94,30 @@ const result: Output = { generated_at: now, bots: {} };
 for (const bot of bots) {
   const base = { categories: bot.categories, sources: [...new Set(bot.sources.map((s) => s.url))] };
   const got = await Promise.allSettled(bot.sources.map(fromSource));
-  const failed = got.flatMap((g, i) => (g.status === "rejected" ? [`${bot.sources[i].url}: ${(g.reason as Error).message}`] : []));
+  const failed = got.flatMap((g, i) => (g.status === "rejected" ? [`${bot.sources[i].url}: ${quote((g.reason as Error).message)}`] : []));
   if (bot.sources.length && !failed.length) {
     const prefixes = got.flatMap((g) => (g.status === "fulfilled" ? g.value.map(prefixText) : []));
     result.bots[bot.id] = { ...base, prefixes: sortUnique(prefixes) };
     continue;
   }
   problems.push(...failed.map((f) => `${bot.id}: ${f}`));
-  const old = previous?.bots[bot.id];
-  if (old?.prefixes.length) {
-    problems.push(`${bot.id}: kept ${old.prefixes.length} ranges from ${old.stale_since ?? previous!.generated_at}`);
-    result.bots[bot.id] = { ...base, prefixes: old.prefixes, stale_since: old.stale_since ?? previous!.generated_at };
+  const old = previous?.bots?.[bot.id];
+  if (!old?.prefixes?.length) continue;
+  const since = String(old.stale_since ?? previous!.generated_at);
+  if (!(Date.now() - Date.parse(since) <= staleLimit)) {
+    problems.push(`${bot.id}: dropped, its sources failed since ${quote(since)}`);
+    continue;
   }
+  const kept = old.prefixes.filter((t) => {
+    try {
+      return !rejectPrefix(parsePrefix(t)) && prefixText(parsePrefix(t)) === t;
+    } catch {
+      return false;
+    }
+  });
+  if (kept.length !== old.prefixes.length) problems.push(`${bot.id}: ${old.prefixes.length - kept.length} kept ranges failed the checks and were dropped`);
+  problems.push(`${bot.id}: kept ${kept.length} ranges from ${quote(since)}`);
+  if (kept.length) result.bots[bot.id] = { ...base, prefixes: sortUnique(kept), stale_since: since };
 }
 
 const all = sortUnique(Object.values(result.bots).flatMap((b) => b.prefixes));
@@ -105,7 +130,7 @@ fs.mkdirSync(values.out!, { recursive: true });
 const report = [
   ...problems.map((p) => `- ${p}`),
   ...(refused ? [`- Refused to publish: ${all.length} ranges (IPv4 ${cur.v4} addresses, IPv6 ${cur.v6} /64s), before ${before.length} (IPv4 ${old.v4}, IPv6 ${old.v6}). Check the new ranges, then run the workflow with allow_growth`] : []),
-].join("\n");
+].join("\n").slice(0, 50_000);
 fs.writeFileSync(path.join(values.out!, "report.md"), report ? report + "\n" : "");
 if (report) console.error(report);
 

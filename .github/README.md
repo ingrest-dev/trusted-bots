@@ -26,7 +26,7 @@ The trusted comment carries `timestamp:<unix time>`. Reject a file older than th
 
 ## What is in the list
 
-The selection lives in [`ingrest/bots.json`](../ingrest/bots.json): each bot id from the catalog with the hosts it may download ranges from.
+The selection lives in [`ingrest/bots.json`](../ingrest/bots.json): each bot id from the catalog with its categories and the exact sources (type, URL, selector) we download. The build reads only this file, never the upstream catalog, so a catalog change cannot add a source.
 
 - Search engines: Google (crawlers, inspection tool, feed fetcher, site verification), Bing, Apple, DuckDuckGo, Mojeek
 - AI crawlers and fetchers: Anthropic, OpenAI, Perplexity, DuckAssist, Common Crawl
@@ -40,10 +40,10 @@ Left out on purpose: lists that cover a whole cloud or company network rather th
 
 A daily workflow ([`trusted-bots.yml`](workflows/trusted-bots.yml)):
 
-1. Merges new upstream commits only if they touch neither `.github/` nor `ingrest/` and every source of our bots stays plain https on its allowed host with a supported selector (`ingrest/check.ts`). Anything else is held and reported in an issue. Code from upstream is never run.
-2. Downloads every source and keeps a range only if it is valid, not reserved, and no wider than /16 (IPv4) or /28 (IPv6) (`ingrest/build.ts`). A source that fails keeps that bot's ranges from the previous build, marked `stale_since`.
+1. Merges new upstream commits, always keeping our own `.github/` and `ingrest/` (upstream workflows never land here); merges with other conflicts, symlinks or submodules are held. Code from upstream is never run: our scripts run from a copy taken before the merge. When the catalog lists other sources for one of our bots than `ingrest/bots.json`, the run reports it so a maintainer can review and update the pinned entry.
+2. Downloads every pinned source and keeps a range only if it is valid, not reserved, and no wider than /16 (IPv4) or /28 (IPv6). A source that fails keeps that bot's ranges from the previous build, checked again and marked `stale_since`, for 14 days at most. The previous build is used only after its signature checks out.
 3. Refuses to publish when the address count more than doubles; a maintainer checks the change and reruns with `allow_growth`.
-4. Signs both files with minisign and replaces the release assets when the ranges changed, and at least every 3 days so a signature is never old. Consumers should reject a file signed more than 14 days ago: it means the builds stopped.
+4. Signs both files with minisign and replaces the release assets when the ranges changed, and at least every 3 days so a signature is never old. Consumers should reject a file signed more than 14 days ago: it means the builds stopped. Assets are replaced one by one, so a download during an upload can fail verification: keep the previous copy then.
 
 Problems of the last run are kept in one open issue labeled `build-report`, closed after a clean run.
 

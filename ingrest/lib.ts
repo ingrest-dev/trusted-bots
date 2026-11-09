@@ -9,60 +9,74 @@ export type Bot = { id: string; categories: string[]; sources: Source[] };
 
 type Entry = {
   id: string;
-  categories?: string[];
   verification?: { type: string; sources?: { type: string; url?: string; selector?: string }[] }[];
 };
 
-export function loadAllowed(): Record<string, string[]> {
-  return JSON.parse(fs.readFileSync(path.join(root, "ingrest", "bots.json"), "utf-8"));
+export function quote(v: unknown): string {
+  const t = JSON.stringify(String(v));
+  return t.length > 160 ? `${t.slice(0, 157)}..."` : t;
 }
 
-export function loadBots(catalogFile = path.join(root, "well-known-bots.json")): { bots: Bot[]; problems: string[] } {
-  const catalog: Entry[] = JSON.parse(fs.readFileSync(catalogFile, "utf-8"));
-  const allowed = loadAllowed();
+export function loadBots(file = path.join(root, "ingrest", "bots.json")): { bots: Bot[]; problems: string[] } {
+  const pinned: Record<string, { categories: string[]; sources: Source[] }> = JSON.parse(fs.readFileSync(file, "utf-8"));
   const bots: Bot[] = [];
   const problems: string[] = [];
-  for (const [id, hosts] of Object.entries(allowed)) {
-    const entry = catalog.find((e) => e.id === id);
-    if (!entry) {
-      problems.push(`${id}: not in the catalog any more`);
-      continue;
+  for (const [id, b] of Object.entries(pinned)) {
+    if (!b.sources?.length) problems.push(`${id}: has no IP range source`);
+    for (const src of b.sources ?? []) {
+      const why = checkSource(src);
+      if (why) problems.push(`${id}: ${why}`);
     }
-    const sources: Source[] = [];
-    for (const v of entry.verification ?? []) {
-      if (v.type !== "cidr" && v.type !== "ip") continue;
-      for (const s of v.sources ?? []) {
-        const why = checkSource(s, hosts);
-        if (why) problems.push(`${id}: ${why}`);
-        else sources.push({ type: s.type as Source["type"], url: s.url!, selector: s.selector });
-      }
-    }
-    if (!sources.length && !problems.some((p) => p.startsWith(`${id}:`))) {
-      problems.push(`${id}: has no IP range source`);
-    }
-    bots.push({ id, categories: entry.categories ?? [], sources });
+    bots.push({ id, categories: b.categories ?? [], sources: b.sources ?? [] });
   }
   return { bots, problems };
 }
 
-function checkSource(s: { type: string; url?: string; selector?: string }, hosts: string[]): string {
-  if (s.type !== "http-json" && s.type !== "http-text") return `unsupported source type ${s.type}`;
+function sourceKey(s: { type?: string; url?: string; selector?: string }): string {
+  return JSON.stringify([s.type ?? "", s.url ?? "", s.selector ?? ""]);
+}
+
+export function catalogDrift(bots: Bot[], catalogFile = path.join(root, "well-known-bots.json")): string[] {
+  const catalog: Entry[] = JSON.parse(fs.readFileSync(catalogFile, "utf-8"));
+  const out: string[] = [];
+  for (const bot of bots) {
+    const entry = catalog.find((e) => e.id === bot.id);
+    if (!entry) {
+      out.push(`${bot.id}: removed from the catalog`);
+      continue;
+    }
+    const theirs = (entry.verification ?? [])
+      .filter((v) => v.type === "cidr" || v.type === "ip")
+      .flatMap((v) => v.sources ?? [])
+      .map(sourceKey)
+      .sort();
+    const ours = bot.sources.map(sourceKey).sort();
+    if (theirs.join("\n") !== ours.join("\n")) {
+      out.push(`${bot.id}: the catalog lists other sources: ${theirs.map(quote).join(", ") || "none"}`);
+    }
+  }
+  return out;
+}
+
+function checkSource(s: { type: string; url?: string; selector?: string }): string {
+  if (s.type !== "http-json" && s.type !== "http-text") return `unsupported source type ${quote(s.type)}`;
   let url: URL;
   try {
     url = new URL(s.url ?? "");
   } catch {
-    return `bad source URL ${s.url}`;
+    return `bad source URL ${quote(s.url)}`;
   }
-  if (url.protocol !== "https:" || url.port || url.username || url.password) return `source must be plain https: ${s.url}`;
-  if (!hosts.includes(url.hostname)) return `source host ${url.hostname} is not allowed (allowed: ${hosts.join(", ")})`;
+  if (url.href !== s.url || url.protocol !== "https:" || url.port || url.username || url.password || url.hash) {
+    return `source must be a plain https URL: ${quote(s.url)}`;
+  }
   if (s.type === "http-json") {
     try {
       parseSelector(s.selector ?? "");
     } catch (e) {
-      return `${(e as Error).message}: ${s.url}`;
+      return `${(e as Error).message}: ${quote(s.url)}`;
     }
   } else if (s.selector) {
-    return `a text source has a selector: ${s.url}`;
+    return `a text source has a selector: ${quote(s.url)}`;
   }
   return "";
 }
@@ -70,7 +84,7 @@ function checkSource(s: { type: string; url?: string; selector?: string }, hosts
 type Step = { kind: "all" } | { kind: "keys"; keys: string[] } | { kind: "filter"; key: string; value: string };
 
 export function parseSelector(sel: string): Step[] {
-  if (!sel.startsWith("$")) throw new Error(`unsupported selector "${sel}"`);
+  if (!sel.startsWith("$")) throw new Error(`unsupported selector ${quote(sel)}`);
   const steps: Step[] = [];
   let rest = sel.slice(1);
   const patterns: [RegExp, (m: RegExpMatchArray) => Step][] = [
@@ -82,7 +96,7 @@ export function parseSelector(sel: string): Step[] {
   ];
   while (rest) {
     const hit = patterns.map(([re, make]) => [rest.match(re), make] as const).find(([m]) => m);
-    if (!hit) throw new Error(`unsupported selector "${sel}"`);
+    if (!hit) throw new Error(`unsupported selector ${quote(sel)}`);
     const [m, make] = hit;
     steps.push(make(m!));
     rest = rest.slice(m![0].length);
@@ -100,7 +114,7 @@ export function select(data: unknown, sel: string): unknown[] {
       if (step.kind === "all") next.push(...vals);
       else if (step.kind === "keys") {
         if (Array.isArray(v)) continue;
-        for (const k of step.keys) if (k in v) next.push((v as Record<string, unknown>)[k]);
+        for (const k of step.keys) if (Object.hasOwn(v, k)) next.push((v as Record<string, unknown>)[k]);
       } else {
         for (const item of vals) {
           if (item && typeof item === "object" && (item as Record<string, unknown>)[step.key] === step.value) next.push(item);
@@ -112,8 +126,8 @@ export function select(data: unknown, sel: string): unknown[] {
   return cur;
 }
 
-const reserved4 = ["0.0.0.0/8", "10.0.0.0/8", "100.64.0.0/10", "127.0.0.0/8", "169.254.0.0/16", "172.16.0.0/12", "192.0.0.0/24", "192.0.2.0/24", "192.168.0.0/16", "198.18.0.0/15", "198.51.100.0/24", "203.0.113.0/24", "224.0.0.0/3"];
-const reserved6 = ["2001:db8::/32", "2002::/16"];
+const reserved4 = ["0.0.0.0/8", "10.0.0.0/8", "100.64.0.0/10", "127.0.0.0/8", "169.254.0.0/16", "172.16.0.0/12", "192.0.0.0/24", "192.0.2.0/24", "192.88.99.0/24", "192.168.0.0/16", "198.18.0.0/15", "198.51.100.0/24", "203.0.113.0/24", "224.0.0.0/3"];
+const reserved6 = ["2001::/32", "2001:db8::/32", "2002::/16"];
 
 function bits(addr: string, v6: boolean): bigint {
   if (!v6) return addr.split(".").reduce((n, p) => (n << 8n) | BigInt(Number(p)), 0n);
@@ -150,14 +164,14 @@ export type Prefix = { v6: boolean; net: bigint; len: number };
 export function parsePrefix(raw: string): Prefix {
   const s = raw.trim();
   const [addr, lenText, extra] = s.split("/");
-  if (extra !== undefined) throw new Error(`bad prefix ${s}`);
+  if (extra !== undefined || s.includes("%")) throw new Error(`bad prefix ${quote(s)}`);
   const kind = net.isIP(addr);
-  if (!kind) throw new Error(`bad address ${s}`);
-  if (addr.includes(".") && kind === 6) throw new Error(`mapped IPv4 address ${s}`);
+  if (!kind) throw new Error(`bad address ${quote(s)}`);
+  if (addr.includes(".") && kind === 6) throw new Error(`mapped IPv4 address ${quote(s)}`);
   const v6 = kind === 6;
   const max = v6 ? 128 : 32;
   const len = lenText === undefined ? max : Number(lenText);
-  if (!/^\d+$/.test(lenText ?? String(max)) || len > max) throw new Error(`bad prefix length ${s}`);
+  if (!/^\d+$/.test(lenText ?? String(max)) || len > max) throw new Error(`bad prefix length ${quote(s)}`);
   const mask = ((1n << BigInt(len)) - 1n) << BigInt(max - len);
   return { v6, len, net: bits(addr, v6) & mask };
 }

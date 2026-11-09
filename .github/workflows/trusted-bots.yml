@@ -23,6 +23,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       PUSH_URL: https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git
+      PUBLIC_KEY: RWTL/AmYyVkstBnn2TyPujxju9+AjhF7C/NxS4rnLh2IDsUm5xKXurJX
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -31,69 +32,105 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 26
+      - name: Prepare
+        run: |
+          sudo apt-get -qq update && sudo apt-get -qq install -y minisign
+          work="$RUNNER_TEMP/work"
+          mkdir -p "$work/tools" "$work/prev" "$work/dist"
+          cp -r ingrest "$work/tools/ingrest"
+          cp well-known-bots.json "$work/tools/well-known-bots.json"
+          echo "WORK=$work" >> "$GITHUB_ENV"
+          echo "TOOLS=$work/tools/ingrest" >> "$GITHUB_ENV"
       - name: Test
-        run: node --test ingrest/lib.test.ts
+        run: node --test "$TOOLS/lib.test.ts"
       - name: Sync upstream
         run: |
+          tok=$(openssl rand -hex 16)
+          echo "::stop-commands::$tok"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git fetch -q --no-tags https://github.com/arcjet/well-known-bots.git main
           upstream=$(git rev-parse FETCH_HEAD)
+          hold() {
+            { echo "Upstream commit $upstream was not merged: $1"; echo; echo '````text'; tr -d '\140' < "$WORK/held.log" | head -c 20000; echo; echo '````'; } > "$WORK/held.md"
+            echo "Held: $1"
+          }
           if git merge-base --is-ancestor "$upstream" HEAD; then
             echo "Upstream has nothing new"
-            exit 0
+          else
+            git merge -q --no-commit --no-ff "$upstream" > "$WORK/held.log" 2>&1 || true
+            for d in .github ingrest; do
+              git rm -rfq --ignore-unmatch -- "$d" > /dev/null
+              git checkout HEAD -- "$d"
+            done
+            if [ -n "$(git diff --name-only --diff-filter=U)" ]; then
+              git diff -z --name-only --diff-filter=U | tr '\0' '\n' >> "$WORK/held.log"
+              git merge --abort
+              hold "the merge has conflicts"
+            elif git diff --cached --raw --no-renames HEAD | awk '{print $2}' | grep -qE '^(120000|160000)$'; then
+              git diff --cached --raw --no-renames HEAD >> "$WORK/held.log"
+              git merge --abort
+              hold "it adds symlinks or submodules"
+            else
+              git commit -q --no-edit -m "Merge upstream ${upstream:0:7}"
+              git push -q "$PUSH_URL" HEAD:main
+              echo "Merged upstream ${upstream:0:7}"
+            fi
           fi
-          hold() {
-            { echo "Upstream commit $upstream was not merged: $1"; echo; [ -s held.log ] && { echo '```'; cat held.log; echo '```'; }; } > held.md
-            cat held.md
-          }
-          if ! git merge -q --no-edit -m "Merge upstream ${upstream:0:7}" "$upstream" > held.log 2>&1; then
-            git merge --abort
-            hold "the merge has conflicts"
-            exit 0
-          fi
-          if git diff --name-only ORIG_HEAD HEAD | grep -E '^(\.github/|ingrest/)' > held.log; then
-            git reset -q --hard ORIG_HEAD
-            hold "it changes files of this fork"
-            exit 0
-          fi
-          if ! node ingrest/check.ts > held.log 2>&1; then
-            git reset -q --hard ORIG_HEAD
-            hold "it changes the sources of bots we publish"
-            exit 0
-          fi
-          git push -q "$PUSH_URL" HEAD:main
+          node "$TOOLS/check.ts" --catalog well-known-bots.json --drift "$WORK/drift.md"
+          echo "::$tok::"
       - name: Build
         id: build
         run: |
-          gh release download bots -p trusted-bots.json -D prev 2>/dev/null || echo "No previous release"
+          prev=()
+          if out=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/bots" --jq .id 2>&1); then
+            gh release download bots -p 'trusted-bots.json*' -D "$WORK/prev"
+            minisign -Vm "$WORK/prev/trusted-bots.json" -P "$PUBLIC_KEY"
+            prev=(--previous "$WORK/prev/trusted-bots.json")
+          elif grep -q 'HTTP 404' <<< "$out"; then
+            echo "No release yet"
+          else
+            echo "$out"
+            exit 1
+          fi
+          tok=$(openssl rand -hex 16)
+          echo "::stop-commands::$tok"
           code=0
-          node ingrest/build.ts --previous prev/trusted-bots.json --out dist ${{ inputs.allow_growth && '--allow-growth' || '' }} || code=$?
+          node "$TOOLS/build.ts" "${prev[@]}" --out "$WORK/dist" ${{ inputs.allow_growth && '--allow-growth' || '' }} || code=$?
+          echo "::$tok::"
           [ "$code" = 0 ] || [ "$code" = 3 ]
       - name: Sign and publish
         if: steps.build.outputs.publish == 'true'
         env:
           MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
         run: |
-          sudo apt-get -qq update && sudo apt-get -qq install -y minisign
           key="$RUNNER_TEMP/minisign.key"
           (umask 077 && printf '%s\n' "$MINISIGN_SECRET_KEY" > "$key")
           ts=$(date +%s)
           for f in trusted-bots.txt trusted-bots.json; do
-            minisign -S -s "$key" -m "dist/$f" -t "timestamp:${ts}"$'\t'"file:$f" < /dev/null
+            minisign -S -s "$key" -m "$WORK/dist/$f" -t "timestamp:${ts}"$'\t'"file:$f" < /dev/null
           done
           rm -f "$key"
           if ! gh release view bots > /dev/null 2>&1; then
             gh release create bots --title "Trusted bot IP ranges" --notes "Signed IP ranges of trusted bots, rebuilt daily from the operators' own lists. See the README."
           fi
-          gh release upload bots dist/trusted-bots.txt.minisig dist/trusted-bots.txt dist/trusted-bots.json.minisig dist/trusted-bots.json --clobber
+          cd "$WORK/dist"
+          gh release upload bots trusted-bots.txt.minisig trusted-bots.txt trusted-bots.json.minisig trusted-bots.json --clobber --repo "$GITHUB_REPOSITORY"
       - name: Report
         if: always()
         run: |
+          section() {
+            [ -s "$2" ] || return 0
+            printf '%s\n\n````text\n' "$1"
+            tr -d '\140' < "$2" | head -c 20000
+            printf '\n````\n\n'
+          }
           body=""
-          [ -s held.md ] && body="$(cat held.md)"$'\n\n'
-          [ -s dist/report.md ] && body+="Build report:"$'\n\n'"$(cat dist/report.md)"
-          [ "${{ job.status }}" = success ] || body+=$'\n\n'"The run failed: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          [ -s "$WORK/held.md" ] && body+="$(cat "$WORK/held.md")"$'\n\n'
+          body+="$(section "Build report:" "$WORK/dist/report.md")"
+          body+="$(section "Our pinned sources differ from the upstream catalog (review and update ingrest/bots.json):" "$WORK/drift.md")"
+          [ "${{ job.status }}" = success ] || body+=$'\n\n'"The run failed."
+          gh label create build-report --color d93f0b --description "Problems of the last trusted bots build" --force > /dev/null
           n=$(gh issue list --state open --label build-report --json number --jq '.[0].number // empty')
           if [ -n "$body" ]; then
             body+=$'\n\n'"Updated by run $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
@@ -102,6 +139,7 @@ jobs:
             gh issue close "$n" --comment "The last run had no problems."
           fi
       - name: Keepalive
+        if: always()
         run: |
           if [ $(( $(date +%s) - $(git log -1 --format=%ct) )) -gt $(( 50 * 86400 )) ]; then
             date -u +%FT%TZ > ingrest/last-build
