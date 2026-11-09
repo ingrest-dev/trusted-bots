@@ -1,0 +1,124 @@
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { parseArgs } from "node:util";
+import { loadBots, parsePrefix, prefixText, rejectPrefix, select, size, type Prefix, type Source } from "./lib.ts";
+
+type BotOut = { categories: string[]; sources: string[]; prefixes: string[]; stale_since?: string };
+type Output = { generated_at: string; bots: Record<string, BotOut> };
+
+const { values } = parseArgs({
+  options: {
+    previous: { type: "string" },
+    out: { type: "string", default: "dist" },
+    catalog: { type: "string" },
+    "allow-growth": { type: "boolean", default: false },
+  },
+});
+
+const now = new Date().toISOString();
+const problems: string[] = [];
+const previous: Output | undefined =
+  values.previous && fs.existsSync(values.previous) ? JSON.parse(fs.readFileSync(values.previous, "utf-8")) : undefined;
+
+const { bots, problems: catalogProblems } = loadBots(values.catalog);
+problems.push(...catalogProblems);
+
+async function download(url: string): Promise<string> {
+  const res = await fetch(url, {
+    redirect: "error",
+    signal: AbortSignal.timeout(30_000),
+    headers: { "user-agent": "trusted-bots-builder (+https://github.com/ingrest-dev/trusted-bots)" },
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const body = await res.text();
+  if (body.length > 4 << 20) throw new Error("larger than 4 MiB");
+  return body;
+}
+
+function entries(src: Source, body: string): string[] {
+  if (src.type === "http-text") {
+    return body
+      .split("\n")
+      .map((l) => l.replace(/#.*/, "").trim())
+      .filter(Boolean);
+  }
+  return select(JSON.parse(body), src.selector ?? "").filter((v): v is string => typeof v === "string");
+}
+
+const fetched = new Map<string, Promise<string>>();
+async function fromSource(src: Source): Promise<Prefix[]> {
+  const key = `${src.url}\n${src.selector ?? ""}`;
+  if (!fetched.has(src.url)) fetched.set(src.url, download(src.url));
+  const out: Prefix[] = [];
+  for (const raw of entries(src, await fetched.get(src.url)!)) {
+    let p: Prefix;
+    try {
+      p = parsePrefix(raw);
+    } catch (e) {
+      problems.push(`${src.url}: ${(e as Error).message}`);
+      continue;
+    }
+    const why = rejectPrefix(p);
+    if (why) problems.push(`${src.url}: ${prefixText(p)} skipped, ${why}`);
+    else out.push(p);
+  }
+  if (!out.length) throw new Error(`no usable ranges (${key.replace("\n", " ")})`);
+  return out;
+}
+
+function order(a: Prefix, b: Prefix): number {
+  if (a.v6 !== b.v6) return a.v6 ? 1 : -1;
+  if (a.net !== b.net) return a.net < b.net ? -1 : 1;
+  return a.len - b.len;
+}
+
+function sortUnique(list: string[]): string[] {
+  const seen = new Map(list.map((t) => [t, parsePrefix(t)] as const));
+  return [...seen.entries()].sort((a, b) => order(a[1], b[1])).map(([t]) => t);
+}
+
+const result: Output = { generated_at: now, bots: {} };
+for (const bot of bots) {
+  const base = { categories: bot.categories, sources: [...new Set(bot.sources.map((s) => s.url))] };
+  const got = await Promise.allSettled(bot.sources.map(fromSource));
+  const failed = got.flatMap((g, i) => (g.status === "rejected" ? [`${bot.sources[i].url}: ${(g.reason as Error).message}`] : []));
+  if (bot.sources.length && !failed.length) {
+    const prefixes = got.flatMap((g) => (g.status === "fulfilled" ? g.value.map(prefixText) : []));
+    result.bots[bot.id] = { ...base, prefixes: sortUnique(prefixes) };
+    continue;
+  }
+  problems.push(...failed.map((f) => `${bot.id}: ${f}`));
+  const old = previous?.bots[bot.id];
+  if (old?.prefixes.length) {
+    problems.push(`${bot.id}: kept ${old.prefixes.length} ranges from ${old.stale_since ?? previous!.generated_at}`);
+    result.bots[bot.id] = { ...base, prefixes: old.prefixes, stale_since: old.stale_since ?? previous!.generated_at };
+  }
+}
+
+const all = sortUnique(Object.values(result.bots).flatMap((b) => b.prefixes));
+const before = sortUnique(Object.values(previous?.bots ?? {}).flatMap((b) => b.prefixes));
+const grown = (now: bigint, then: bigint) => then > 0n && now > then * 2n;
+const [cur, old] = [size(all), size(before)];
+const refused = (!values["allow-growth"] && (grown(cur.v4, old.v4) || grown(cur.v6, old.v6))) || !all.length;
+
+fs.mkdirSync(values.out!, { recursive: true });
+const report = [
+  ...problems.map((p) => `- ${p}`),
+  ...(refused ? [`- Refused to publish: ${all.length} ranges (IPv4 ${cur.v4} addresses, IPv6 ${cur.v6} /64s), before ${before.length} (IPv4 ${old.v4}, IPv6 ${old.v6}). Check the new ranges, then run the workflow with allow_growth`] : []),
+].join("\n");
+fs.writeFileSync(path.join(values.out!, "report.md"), report ? report + "\n" : "");
+if (report) console.error(report);
+
+const changed = !refused && all.join("\n") !== before.join("\n");
+if (!refused) {
+  const header = [
+    `# Trusted bot IP ranges, generated ${now}`,
+    "# https://github.com/ingrest-dev/trusted-bots",
+    `# ${Object.keys(result.bots).length} bots: ${Object.keys(result.bots).join(" ")}`,
+  ];
+  fs.writeFileSync(path.join(values.out!, "trusted-bots.txt"), [...header, ...all].join("\n") + "\n");
+  fs.writeFileSync(path.join(values.out!, "trusted-bots.json"), JSON.stringify(result, null, 2) + "\n");
+}
+console.log(`${all.length} ranges from ${Object.keys(result.bots).length} bots, changed: ${changed}`);
+if (process.env.GITHUB_OUTPUT) fs.appendFileSync(process.env.GITHUB_OUTPUT, `changed=${changed}\nrefused=${refused}\n`);
+process.exit(refused ? 3 : 0);

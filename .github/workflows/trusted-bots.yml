@@ -1,0 +1,111 @@
+name: Trusted bots
+
+on:
+  schedule:
+    - cron: "23 4 * * *"
+  workflow_dispatch:
+    inputs:
+      allow_growth:
+        description: Publish even if the list more than doubled
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: trusted-bots
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PUSH_URL: https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 26
+      - name: Test
+        run: node --test ingrest/lib.test.ts
+      - name: Sync upstream
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch -q --no-tags https://github.com/arcjet/well-known-bots.git main
+          upstream=$(git rev-parse FETCH_HEAD)
+          if git merge-base --is-ancestor "$upstream" HEAD; then
+            echo "Upstream has nothing new"
+            exit 0
+          fi
+          hold() {
+            { echo "Upstream commit $upstream was not merged: $1"; echo; [ -s held.log ] && { echo '```'; cat held.log; echo '```'; }; } > held.md
+            cat held.md
+          }
+          if ! git merge -q --no-edit -m "Merge upstream ${upstream:0:7}" "$upstream" > held.log 2>&1; then
+            git merge --abort
+            hold "the merge has conflicts"
+            exit 0
+          fi
+          if git diff --name-only ORIG_HEAD HEAD | grep -E '^(\.github/|ingrest/)' > held.log; then
+            git reset -q --hard ORIG_HEAD
+            hold "it changes files of this fork"
+            exit 0
+          fi
+          if ! node ingrest/check.ts > held.log 2>&1; then
+            git reset -q --hard ORIG_HEAD
+            hold "it changes the sources of bots we publish"
+            exit 0
+          fi
+          git push -q "$PUSH_URL" HEAD:main
+      - name: Build
+        id: build
+        run: |
+          gh release download bots -p trusted-bots.json -D prev 2>/dev/null || echo "No previous release"
+          code=0
+          node ingrest/build.ts --previous prev/trusted-bots.json --out dist ${{ inputs.allow_growth && '--allow-growth' || '' }} || code=$?
+          [ "$code" = 0 ] || [ "$code" = 3 ]
+      - name: Sign and publish
+        if: steps.build.outputs.changed == 'true'
+        env:
+          MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
+        run: |
+          sudo apt-get -qq update && sudo apt-get -qq install -y minisign
+          key="$RUNNER_TEMP/minisign.key"
+          (umask 077 && printf '%s\n' "$MINISIGN_SECRET_KEY" > "$key")
+          ts=$(date +%s)
+          for f in trusted-bots.txt trusted-bots.json; do
+            minisign -S -s "$key" -m "dist/$f" -t "timestamp:${ts}"$'\t'"file:$f" < /dev/null
+          done
+          rm -f "$key"
+          if ! gh release view bots > /dev/null 2>&1; then
+            gh release create bots --title "Trusted bot IP ranges" --notes "Signed IP ranges of trusted bots, rebuilt daily from the operators' own lists. See the README."
+          fi
+          gh release upload bots dist/trusted-bots.txt.minisig dist/trusted-bots.txt dist/trusted-bots.json.minisig dist/trusted-bots.json --clobber
+      - name: Report
+        if: always()
+        run: |
+          body=""
+          [ -s held.md ] && body="$(cat held.md)"$'\n\n'
+          [ -s dist/report.md ] && body+="Build report:"$'\n\n'"$(cat dist/report.md)"
+          [ "${{ job.status }}" = success ] || body+=$'\n\n'"The run failed: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          n=$(gh issue list --state open --label build-report --json number --jq '.[0].number // empty')
+          if [ -n "$body" ]; then
+            body+=$'\n\n'"Updated by run $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            if [ -n "$n" ]; then gh issue edit "$n" --body "$body"; else gh issue create --title "Trusted bots build report" --label build-report --body "$body"; fi
+          elif [ -n "$n" ]; then
+            gh issue close "$n" --comment "The last run had no problems."
+          fi
+      - name: Keepalive
+        run: |
+          if [ $(( $(date +%s) - $(git log -1 --format=%ct) )) -gt $(( 50 * 86400 )) ]; then
+            date -u +%FT%TZ > ingrest/last-build
+            git add ingrest/last-build
+            git commit -q -m "chore: keep the schedule alive"
+            git push -q "$PUSH_URL" HEAD:main
+          fi
