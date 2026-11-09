@@ -1,7 +1,22 @@
+import * as dns from "node:dns/promises";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { parseArgs } from "node:util";
-import { loadBots, parsePrefix, prefixText, quote, rejectPrefix, select, size, type Prefix, type Source } from "./lib.ts";
+import {
+  loadBots,
+  parsePrefix,
+  prefixText,
+  quote,
+  rejectPrefix,
+  select,
+  size,
+  subnets24,
+  verifiedSubnets,
+  type DnsSource,
+  type HttpSource,
+  type Prefix,
+  type Source,
+} from "./lib.ts";
 
 const staleLimit = 14 * 24 * 3600 * 1000;
 
@@ -42,7 +57,7 @@ async function download(url: string): Promise<string> {
   return Buffer.concat(chunks).toString("utf-8");
 }
 
-function entries(src: Source, body: string): string[] {
+function entries(src: HttpSource, body: string): string[] {
   if (src.type === "http-text") {
     return body
       .split("\n")
@@ -53,7 +68,36 @@ function entries(src: Source, body: string): string[] {
 }
 
 const fetched = new Map<string, Promise<string>>();
+function label(src: Source): string {
+  return src.type === "asn-rdns" ? `AS${src.asn} reverse DNS ${src.ptr.join(" ")}` : src.url;
+}
+
+async function fromDns(src: DnsSource): Promise<Prefix[]> {
+  const body = await download(`https://stat.ripe.net/data/announced-prefixes/data.json?resource=AS${src.asn}`);
+  const announced = select(JSON.parse(body), "$.data.prefixes[*].prefix").filter((v): v is string => {
+    if (typeof v !== "string") return false;
+    try {
+      parsePrefix(v);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+  const resolver = new dns.Resolver({ timeout: 3000, tries: 2 });
+  const found = await verifiedSubnets(subnets24(announced), src.ptr, {
+    reverse: (ip) => resolver.reverse(ip),
+    resolve4: (name) => resolver.resolve4(name),
+  });
+  if (!found.length) throw new Error(`no address of AS${src.asn} has a confirmed ${src.ptr.join(" or ")} name`);
+  return found.map(parsePrefix);
+}
+
 async function fromSource(src: Source): Promise<Prefix[]> {
+  if (src.type === "asn-rdns") return fromDns(src);
+  return fromHttp(src);
+}
+
+async function fromHttp(src: HttpSource): Promise<Prefix[]> {
   const key = `${src.url}\n${src.selector ?? ""}`;
   if (!fetched.has(src.url)) fetched.set(src.url, download(src.url));
   const out: Prefix[] = [];
@@ -92,9 +136,9 @@ function sortUnique(list: string[]): string[] {
 
 const result: Output = { generated_at: now, bots: {} };
 for (const bot of bots) {
-  const base = { categories: bot.categories, sources: [...new Set(bot.sources.map((s) => s.url))] };
+  const base = { categories: bot.categories, sources: [...new Set(bot.sources.map(label))] };
   const got = await Promise.allSettled(bot.sources.map(fromSource));
-  const failed = got.flatMap((g, i) => (g.status === "rejected" ? [`${bot.sources[i].url}: ${quote((g.reason as Error).message)}`] : []));
+  const failed = got.flatMap((g, i) => (g.status === "rejected" ? [`${label(bot.sources[i])}: ${quote((g.reason as Error).message)}`] : []));
   if (bot.sources.length && !failed.length) {
     const prefixes = got.flatMap((g) => (g.status === "fulfilled" ? g.value.map(prefixText) : []));
     result.bots[bot.id] = { ...base, prefixes: sortUnique(prefixes) };

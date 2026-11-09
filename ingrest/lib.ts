@@ -4,7 +4,9 @@ import * as path from "node:path";
 
 export const root = path.join(import.meta.dirname, "..");
 
-export type Source = { type: "http-json" | "http-text"; url: string; selector?: string };
+export type HttpSource = { type: "http-json" | "http-text"; url: string; selector?: string };
+export type DnsSource = { type: "asn-rdns"; asn: number; ptr: string[] };
+export type Source = HttpSource | DnsSource;
 export type Bot = { id: string; categories: string[]; sources: Source[] };
 
 type Entry = {
@@ -32,7 +34,7 @@ export function loadBots(file = path.join(root, "ingrest", "bots.json")): { bots
   return { bots, problems };
 }
 
-function sourceKey(s: { type?: string; url?: string; selector?: string }): string {
+function sourceKey(s: { type?: string; url?: string; selector?: string; asn?: number }): string {
   return JSON.stringify([s.type ?? "", s.url ?? "", s.selector ?? ""]);
 }
 
@@ -50,7 +52,10 @@ export function catalogDrift(bots: Bot[], catalogFile = path.join(root, "well-kn
       .flatMap((v) => v.sources ?? [])
       .map(sourceKey)
       .sort();
-    const ours = bot.sources.map(sourceKey).sort();
+    const ours = bot.sources
+      .filter((s) => s.type !== "asn-rdns")
+      .map(sourceKey)
+      .sort();
     if (theirs.join("\n") !== ours.join("\n")) {
       out.push(`${bot.id}: the catalog lists other sources: ${theirs.map(quote).join(", ") || "none"}`);
     }
@@ -58,7 +63,15 @@ export function catalogDrift(bots: Bot[], catalogFile = path.join(root, "well-kn
   return out;
 }
 
-function checkSource(s: { type: string; url?: string; selector?: string }): string {
+function checkSource(s: { type: string; url?: string; selector?: string; asn?: unknown; ptr?: unknown }): string {
+  if (s.type === "asn-rdns") {
+    if (!Number.isInteger(s.asn) || (s.asn as number) <= 0) return `bad AS number ${quote(s.asn)}`;
+    const ptr = s.ptr;
+    if (!Array.isArray(ptr) || !ptr.length || !ptr.every((p) => typeof p === "string" && /^(\.[a-z0-9-]+){2,}$/.test(p))) {
+      return `ptr must list host name suffixes like ".spider.example.com": ${quote(JSON.stringify(ptr))}`;
+    }
+    return "";
+  }
   if (s.type !== "http-json" && s.type !== "http-text") return `unsupported source type ${quote(s.type)}`;
   let url: URL;
   try {
@@ -204,4 +217,62 @@ export function size(prefixes: string[]): { v4: bigint; v6: bigint } {
     else v4 += 1n << BigInt(32 - p.len);
   }
   return { v4, v6 };
+}
+
+export type Lookup = {
+  reverse: (ip: string) => Promise<string[]>;
+  resolve4: (name: string) => Promise<string[]>;
+};
+
+export const sampleOffsets = Array.from({ length: 16 }, (_, i) => 1 + i * 16);
+
+function ip4(n: bigint): string {
+  return [24n, 16n, 8n, 0n].map((s) => String((n >> s) & 255n)).join(".");
+}
+
+export function subnets24(prefixes: string[], max = 8192): bigint[] {
+  const out = new Set<bigint>();
+  for (const t of prefixes) {
+    const p = parsePrefix(t);
+    if (p.v6 || p.len > 24) continue;
+    if (rejectPrefix(p)) continue;
+    const count = 1n << BigInt(24 - p.len);
+    if (BigInt(out.size) + count > BigInt(max)) throw new Error(`more than ${max} /24 networks to check`);
+    for (let i = 0n; i < count; i++) out.add(p.net + (i << 8n));
+  }
+  return [...out].sort((a, b) => (a < b ? -1 : 1));
+}
+
+export async function verifiedSubnets(nets: bigint[], ptr: string[], lookup: Lookup, workers = 64): Promise<string[]> {
+  const hits: bigint[] = [];
+  let next = 0;
+  async function confirmed(ip: string): Promise<boolean> {
+    let names: string[];
+    try {
+      names = await lookup.reverse(ip);
+    } catch {
+      return false;
+    }
+    for (const name of names) {
+      const host = name.toLowerCase().replace(/\.$/, "");
+      if (!ptr.some((suffix) => host.endsWith(suffix))) continue;
+      try {
+        if ((await lookup.resolve4(host)).includes(ip)) return true;
+      } catch {}
+    }
+    return false;
+  }
+  async function worker() {
+    while (next < nets.length) {
+      const net = nets[next++];
+      for (const off of sampleOffsets) {
+        if (await confirmed(ip4(net + BigInt(off)))) {
+          hits.push(net);
+          break;
+        }
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: workers }, worker));
+  return hits.sort((a, b) => (a < b ? -1 : 1)).map((n) => `${ip4(n)}/24`);
 }

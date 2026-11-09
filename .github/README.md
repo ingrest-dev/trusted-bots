@@ -28,13 +28,13 @@ The trusted comment carries `timestamp:<unix time>`. Reject a file older than th
 
 The selection lives in [`ingrest/bots.json`](../ingrest/bots.json): each bot id from the catalog with its categories and the exact sources (type, URL, selector) we download. The build reads only this file, never the upstream catalog, so a catalog change cannot add a source.
 
-- Search engines: Google (crawlers, inspection tool, feed fetcher, site verification), Bing, Apple, DuckDuckGo, Mojeek
+- Search engines: Google (crawlers, inspection tool, feed fetcher, site verification), Bing, Apple, DuckDuckGo, Mojeek, Yandex (IPv4)
 - AI crawlers and fetchers: Anthropic, OpenAI, Perplexity, DuckAssist, Common Crawl
 - Link previews: Bing and Microsoft previews, Telegram
 - Uptime monitors: UptimeRobot, Better Stack, Pingdom, StatusCake, Checkly, Sentry
 - Webhooks: GitHub, Stripe
 
-Left out on purpose: lists that cover a whole cloud or company network rather than a bot (Cloudflare, AWS Route 53 health checks, Meta, New Relic on a shared S3 bucket), scanners (Censys), SEO and ad bots, small bots nobody vouches for. Bots that publish no ranges and offer only reverse DNS checks (Yandex, Baidu, Seznam) cannot be listed.
+Left out on purpose: lists that cover a whole cloud or company network rather than a bot (Cloudflare, AWS Route 53 health checks, Meta, New Relic on a shared S3 bucket), scanners (Censys), SEO and ad bots, small bots nobody vouches for. Yandex publishes no ranges: its robots are found by reverse DNS instead. The build takes the IPv4 networks announced by Yandex's own AS13238 (RIPEstat; Yandex Cloud is a separate AS), checks 16 addresses in every /24, and keeps a /24 only if an address has a `*.spider.yandex.com` name that resolves back to it. IPv6 is too large to sample, so Yandex over IPv6 is not covered. Baidu and Seznam are not listed yet.
 
 ## How a build stays trustworthy
 

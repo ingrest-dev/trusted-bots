@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { test } from "node:test";
-import { catalogDrift, loadBots, parsePrefix, prefixText, rejectPrefix, select, size } from "./lib.ts";
+import { catalogDrift, loadBots, parsePrefix, subnets24, verifiedSubnets, prefixText, rejectPrefix, select, size } from "./lib.ts";
 
 test("selectors used by the catalog", () => {
   const google = { prefixes: [{ ipv4Prefix: "1.2.3.0/24" }, { ipv6Prefix: "2001:4860::/32" }] };
@@ -69,5 +69,48 @@ test("pinned sources are checked and catalog changes are only reported", () => {
   assert.match(drift((b) => (google(b).verification[0].sources[0].selector = "$.*[*]")).join(), /google-crawler: the catalog lists other sources/);
   assert.match(drift((b) => google(b).verification[0].sources.push({ type: "http-text", url: "https://evil.example/x" })).join(), /google-crawler/);
   assert.match(drift((b) => b.splice(b.indexOf(google(b)), 1)).join(), /google-crawler: removed from the catalog/);
+  fs.rmSync(dir, { recursive: true });
+});
+
+test("reverse DNS keeps only /24s with a confirmed robot name", async () => {
+  assert.equal(subnets24(["198.51.100.0/24", "5.255.252.0/23", "10.0.0.0/22", "5.255.253.0/25", "2a02:6b8::/32"]).length, 2);
+  assert.throws(() => subnets24(["5.0.0.0/16"], 100), /more than 100/);
+  const ptr: Record<string, string[]> = {
+    "5.255.252.17": ["5-255-252-17.spider.yandex.com."],
+    "5.255.253.1": ["fake.spider.yandex.com.evil.example"],
+    "5.255.253.33": ["5-255-253-33.spider.yandex.com"],
+    "77.88.5.1": ["77-88-5-1.spider.yandex.com"],
+  };
+  const forward: Record<string, string[]> = {
+    "5-255-252-17.spider.yandex.com": ["5.255.252.17"],
+    "5-255-253-33.spider.yandex.com": ["9.9.9.9"],
+    "77-88-5-1.spider.yandex.com": ["77.88.5.1"],
+  };
+  const lookup = {
+    reverse: async (ip: string) => {
+      if (!ptr[ip]) throw new Error("ENOTFOUND");
+      return ptr[ip];
+    },
+    resolve4: async (name: string) => {
+      if (!forward[name]) throw new Error("ENOTFOUND");
+      return forward[name];
+    },
+  };
+  const got = await verifiedSubnets(subnets24(["5.255.252.0/23", "77.88.4.0/23"]), [".spider.yandex.com"], lookup, 3);
+  assert.deepEqual(got, ["5.255.252.0/24", "77.88.5.0/24"]);
+});
+
+test("reverse DNS sources are validated", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "trusted-bots-"));
+  const file = path.join(dir, "bots.json");
+  const check = (src: unknown) => {
+    fs.writeFileSync(file, JSON.stringify({ y: { categories: [], sources: [src] } }));
+    return loadBots(file).problems.join();
+  };
+  assert.equal(check({ type: "asn-rdns", asn: 13238, ptr: [".spider.yandex.com"] }), "");
+  assert.match(check({ type: "asn-rdns", asn: "13238", ptr: [".spider.yandex.com"] }), /bad AS number/);
+  assert.match(check({ type: "asn-rdns", asn: 13238, ptr: ["yandex.com"] }), /ptr must list/);
+  assert.match(check({ type: "asn-rdns", asn: 13238, ptr: [".com"] }), /ptr must list/);
+  assert.match(check({ type: "asn-rdns", asn: 13238, ptr: [] }), /ptr must list/);
   fs.rmSync(dir, { recursive: true });
 });

@@ -451,5 +451,19 @@
         "selector": "$.WEBHOOKS[*]"
       }
     ]
+  },
+  "yandex-crawler": {
+    "categories": [
+      "search-engine"
+    ],
+    "sources": [
+      {
+        "type": "asn-rdns",
+        "asn": 13238,
+        "ptr": [
+          ".spider.yandex.com"
+        ]
+      }
+    ]
   }
 }
