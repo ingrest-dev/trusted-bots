@@ -84,12 +84,21 @@ async function fromDns(src: DnsSource): Promise<Prefix[]> {
     }
   });
   const resolver = new dns.Resolver({ timeout: 3000, tries: 2 });
-  const found = await verifiedSubnets(subnets24(announced), src.ptr, {
-    reverse: (ip) => resolver.reverse(ip),
-    resolve4: (name) => resolver.resolve4(name),
-  });
-  if (!found.length) throw new Error(`no address of AS${src.asn} has a confirmed ${src.ptr.join(" or ")} name`);
-  return found.map(parsePrefix);
+  const found = await verifiedSubnets(
+    subnets24(announced),
+    src.ptr,
+    {
+      reverse: (ip) => resolver.reverse(ip),
+      resolve4: (name) => resolver.resolve4(name),
+      resolveCname: (name) => resolver.resolveCname(name),
+    },
+    { deadline: Date.now() + 20 * 60_000 },
+  ).finally(() => resolver.cancel());
+  if (found.errors > found.lookups / 100) {
+    throw new Error(`${found.errors} of ${found.lookups} DNS lookups failed`);
+  }
+  if (!found.subnets.length) throw new Error(`no address of AS${src.asn} has a confirmed ${src.ptr.join(" or ")} name`);
+  return found.subnets.map(parsePrefix);
 }
 
 async function fromSource(src: Source): Promise<Prefix[]> {

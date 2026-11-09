@@ -20,6 +20,7 @@ concurrency:
 jobs:
   publish:
     runs-on: ubuntu-24.04
+    timeout-minutes: 45
     env:
       GH_TOKEN: ${{ github.token }}
       PUSH_URL: https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git
@@ -85,10 +86,19 @@ jobs:
           prev=()
           if out=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/bots" --jq .id 2>&1); then
             gh release download bots -p 'trusted-bots.json*' -D "$WORK/prev"
-            minisign -Vm "$WORK/prev/trusted-bots.json" -P "$PUBLIC_KEY"
+            comment=$(minisign -Vm "$WORK/prev/trusted-bots.json" -P "$PUBLIC_KEY" | sed -n 's/^Trusted comment: //p')
+            signed=$(sed -n 's/^timestamp:\([0-9]*\)\tfile:trusted-bots\.json$/\1/p' <<< "$comment")
+            if [ -z "$signed" ] || [ $(( $(date +%s) - signed )) -gt $(( 15 * 86400 )) ]; then
+              echo "The previous build is not a recent trusted-bots.json: $comment"
+              exit 1
+            fi
             prev=(--previous "$WORK/prev/trusted-bots.json")
           elif grep -q 'HTTP 404' <<< "$out"; then
             echo "No release yet"
+            if [ "${{ inputs.allow_growth }}" != true ]; then
+              echo "Without a previous build the growth check cannot run: start the first build by hand with allow_growth"
+              exit 1
+            fi
           else
             echo "$out"
             exit 1
@@ -141,6 +151,10 @@ jobs:
       - name: Keepalive
         if: always()
         run: |
+          if git rev-parse -q --verify MERGE_HEAD > /dev/null; then
+            echo "A merge was left open, skipping"
+            exit 0
+          fi
           if [ $(( $(date +%s) - $(git log -1 --format=%ct) )) -gt $(( 50 * 86400 )) ]; then
             date -u +%FT%TZ > ingrest/last-build
             git add ingrest/last-build

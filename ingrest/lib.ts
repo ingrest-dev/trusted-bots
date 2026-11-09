@@ -222,9 +222,13 @@ export function size(prefixes: string[]): { v4: bigint; v6: bigint } {
 export type Lookup = {
   reverse: (ip: string) => Promise<string[]>;
   resolve4: (name: string) => Promise<string[]>;
+  resolveCname: (name: string) => Promise<string[]>;
 };
 
 export const sampleOffsets = Array.from({ length: 16 }, (_, i) => 1 + i * 16);
+export const confirmsNeeded = 2;
+const hostRe = /^[a-z0-9-]+(\.[a-z0-9-]+)+$/;
+const absent = new Set(["ENOTFOUND", "ENODATA"]);
 
 function ip4(n: bigint): string {
   return [24n, 16n, 8n, 0n].map((s) => String((n >> s) & 255n)).join(".");
@@ -237,42 +241,60 @@ export function subnets24(prefixes: string[], max = 8192): bigint[] {
     if (p.v6 || p.len > 24) continue;
     if (rejectPrefix(p)) continue;
     const count = 1n << BigInt(24 - p.len);
-    if (BigInt(out.size) + count > BigInt(max)) throw new Error(`more than ${max} /24 networks to check`);
-    for (let i = 0n; i < count; i++) out.add(p.net + (i << 8n));
+    for (let i = 0n; i < count; i++) {
+      out.add(p.net + (i << 8n));
+      if (out.size > max) throw new Error(`more than ${max} /24 networks to check`);
+    }
   }
   return [...out].sort((a, b) => (a < b ? -1 : 1));
 }
 
-export async function verifiedSubnets(nets: bigint[], ptr: string[], lookup: Lookup, workers = 64): Promise<string[]> {
+export type DnsResult = { subnets: string[]; lookups: number; errors: number };
+
+export async function verifiedSubnets(
+  nets: bigint[],
+  ptr: string[],
+  lookup: Lookup,
+  opts: { workers?: number; deadline?: number } = {},
+): Promise<DnsResult> {
   const hits: bigint[] = [];
+  const deadline = opts.deadline ?? Infinity;
   let next = 0;
-  async function confirmed(ip: string): Promise<boolean> {
-    let names: string[];
+  let lookups = 0;
+  let errors = 0;
+  async function ask<T>(q: () => Promise<T>): Promise<T | undefined> {
+    if (Date.now() > deadline) throw new Error("the reverse DNS check ran out of time");
+    lookups++;
     try {
-      names = await lookup.reverse(ip);
-    } catch {
-      return false;
+      return await q();
+    } catch (e) {
+      if (!absent.has((e as { code?: string }).code ?? "")) errors++;
+      return undefined;
     }
-    for (const name of names) {
+  }
+  async function confirmed(ip: string): Promise<boolean> {
+    for (const name of (await ask(() => lookup.reverse(ip))) ?? []) {
       const host = name.toLowerCase().replace(/\.$/, "");
-      if (!ptr.some((suffix) => host.endsWith(suffix))) continue;
-      try {
-        if ((await lookup.resolve4(host)).includes(ip)) return true;
-      } catch {}
+      if (!hostRe.test(host) || !ptr.some((suffix) => host.endsWith(suffix))) continue;
+      const cname = await ask(() => lookup.resolveCname(host));
+      if (cname?.length) continue;
+      if ((await ask(() => lookup.resolve4(host)))?.includes(ip)) return true;
     }
     return false;
   }
   async function worker() {
     while (next < nets.length) {
       const net = nets[next++];
+      let ok = 0;
       for (const off of sampleOffsets) {
-        if (await confirmed(ip4(net + BigInt(off)))) {
+        if (await confirmed(ip4(net + BigInt(off)))) ok++;
+        if (ok >= confirmsNeeded) {
           hits.push(net);
           break;
         }
       }
     }
   }
-  await Promise.all(Array.from({ length: workers }, worker));
-  return hits.sort((a, b) => (a < b ? -1 : 1)).map((n) => `${ip4(n)}/24`);
+  await Promise.all(Array.from({ length: opts.workers ?? 64 }, worker));
+  return { subnets: hits.sort((a, b) => (a < b ? -1 : 1)).map((n) => `${ip4(n)}/24`), lookups, errors };
 }

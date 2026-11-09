@@ -34,7 +34,7 @@ The selection lives in [`ingrest/bots.json`](../ingrest/bots.json): each bot id 
 - Uptime monitors: UptimeRobot, Better Stack, Pingdom, StatusCake, Checkly, Sentry
 - Webhooks: GitHub, Stripe
 
-Left out on purpose: lists that cover a whole cloud or company network rather than a bot (Cloudflare, AWS Route 53 health checks, Meta, New Relic on a shared S3 bucket), scanners (Censys), SEO and ad bots, small bots nobody vouches for. Yandex publishes no ranges: its robots are found by reverse DNS instead. The build takes the IPv4 networks announced by Yandex's own AS13238 (RIPEstat; Yandex Cloud is a separate AS), checks 16 addresses in every /24, and keeps a /24 only if an address has a `*.spider.yandex.com` name that resolves back to it. IPv6 is too large to sample, so Yandex over IPv6 is not covered. Baidu and Seznam are not listed yet.
+Left out on purpose: lists that cover a whole cloud or company network rather than a bot (Cloudflare, AWS Route 53 health checks, Meta, New Relic on a shared S3 bucket), scanners (Censys), SEO and ad bots, small bots nobody vouches for. Yandex publishes no ranges and `yandex.com` has no DNSSEC, so this check trusts the runner's resolver: its robots are found by reverse DNS instead. The build takes the IPv4 networks announced by Yandex's own AS13238 (RIPEstat; Yandex Cloud is a separate AS), checks 16 addresses in every /24, and keeps a /24 only if two addresses have a plain `*.spider.yandex.com` name (no CNAME) that resolves back to them. More than 1% failed lookups fail the source, so the previous ranges stay instead of a partial result. IPv6 is too large to sample, so Yandex over IPv6 is not covered. Baidu and Seznam are not listed yet.
 
 ## How a build stays trustworthy
 
@@ -42,7 +42,7 @@ A daily workflow ([`trusted-bots.yml`](workflows/trusted-bots.yml)):
 
 1. Merges new upstream commits, always keeping our own `.github/` and `ingrest/` (upstream workflows never land here); merges with other conflicts, symlinks or submodules are held. Code from upstream is never run: our scripts run from a copy taken before the merge. When the catalog lists other sources for one of our bots than `ingrest/bots.json`, the run reports it so a maintainer can review and update the pinned entry.
 2. Downloads every pinned source and keeps a range only if it is valid, not reserved, and no wider than /16 (IPv4) or /28 (IPv6). A source that fails keeps that bot's ranges from the previous build, checked again and marked `stale_since`, for 14 days at most. The previous build is used only after its signature checks out.
-3. Refuses to publish when the address count more than doubles; a maintainer checks the change and reruns with `allow_growth`.
+3. Refuses to publish when the address count more than doubles; a maintainer checks the change and reruns with `allow_growth`. The previous build counts only if its signature, file name and a timestamp within 15 days check out; without a release at all the run needs `allow_growth`.
 4. Signs both files with minisign and replaces the release assets when the ranges changed, and at least every 3 days so a signature is never old. Consumers should reject a file signed more than 14 days ago: it means the builds stopped. Assets are replaced one by one, so a download during an upload can fail verification: keep the previous copy then.
 
 Problems of the last run are kept in one open issue labeled `build-report`, closed after a clean run.

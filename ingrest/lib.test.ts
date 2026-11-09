@@ -72,32 +72,60 @@ test("pinned sources are checked and catalog changes are only reported", () => {
   fs.rmSync(dir, { recursive: true });
 });
 
-test("reverse DNS keeps only /24s with a confirmed robot name", async () => {
+test("reverse DNS keeps only /24s with confirmed robot names", async () => {
   assert.equal(subnets24(["198.51.100.0/24", "5.255.252.0/23", "10.0.0.0/22", "5.255.253.0/25", "2a02:6b8::/32"]).length, 2);
+  assert.equal(subnets24(["37.9.64.0/18", "37.9.87.0/24"], 64).length, 64);
   assert.throws(() => subnets24(["5.0.0.0/16"], 100), /more than 100/);
+  const robot = (ip: string) => `${ip.replaceAll(".", "-")}.spider.yandex.com`;
   const ptr: Record<string, string[]> = {
-    "5.255.252.17": ["5-255-252-17.spider.yandex.com."],
+    "5.255.252.1": [robot("5.255.252.1") + "."],
+    "5.255.252.17": [robot("5.255.252.17")],
     "5.255.253.1": ["fake.spider.yandex.com.evil.example"],
-    "5.255.253.33": ["5-255-253-33.spider.yandex.com"],
-    "77.88.5.1": ["77-88-5-1.spider.yandex.com"],
+    "5.255.253.17": ["evil\\.spider.yandex.com"],
+    "5.255.253.33": [robot("5.255.253.33")],
+    "5.255.253.49": [robot("5.255.253.49")],
+    "77.88.5.1": [robot("77.88.5.1")],
+    "77.88.5.17": [robot("77.88.5.17")],
+    "77.88.4.1": [robot("77.88.4.1")],
+    "77.88.4.17": [robot("77.88.4.17")],
   };
   const forward: Record<string, string[]> = {
-    "5-255-252-17.spider.yandex.com": ["5.255.252.17"],
-    "5-255-253-33.spider.yandex.com": ["9.9.9.9"],
-    "77-88-5-1.spider.yandex.com": ["77.88.5.1"],
+    [robot("5.255.252.1")]: ["5.255.252.1"],
+    [robot("5.255.252.17")]: ["5.255.252.17"],
+    "evil\\.spider.yandex.com": ["5.255.253.17"],
+    [robot("5.255.253.33")]: ["9.9.9.9"],
+    [robot("5.255.253.49")]: ["5.255.253.49"],
+    [robot("77.88.5.1")]: ["77.88.5.1"],
+    [robot("77.88.5.17")]: ["77.88.5.17"],
+    [robot("77.88.4.1")]: ["77.88.4.1"],
+    [robot("77.88.4.17")]: ["77.88.4.17"],
   };
+  const cname: Record<string, string[]> = { [robot("77.88.4.17")]: ["t.evil.example"] };
+  const fail = (code: string) => Object.assign(new Error(code), { code });
+  let outage = false;
   const lookup = {
     reverse: async (ip: string) => {
-      if (!ptr[ip]) throw new Error("ENOTFOUND");
+      if (outage && ip.endsWith(".33")) throw fail("ETIMEOUT");
+      if (!ptr[ip]) throw fail("ENOTFOUND");
       return ptr[ip];
     },
     resolve4: async (name: string) => {
-      if (!forward[name]) throw new Error("ENOTFOUND");
+      if (!forward[name]) throw fail("ENOTFOUND");
       return forward[name];
     },
+    resolveCname: async (name: string) => {
+      if (!cname[name]) throw fail("ENODATA");
+      return cname[name];
+    },
   };
-  const got = await verifiedSubnets(subnets24(["5.255.252.0/23", "77.88.4.0/23"]), [".spider.yandex.com"], lookup, 3);
-  assert.deepEqual(got, ["5.255.252.0/24", "77.88.5.0/24"]);
+  const nets = subnets24(["5.255.252.0/23", "77.88.4.0/23"]);
+  const got = await verifiedSubnets(nets, [".spider.yandex.com"], lookup, { workers: 3 });
+  assert.deepEqual(got.subnets, ["5.255.252.0/24", "77.88.5.0/24"]);
+  assert.equal(got.errors, 0);
+  outage = true;
+  const down = await verifiedSubnets(nets, [".spider.yandex.com"], lookup, { workers: 3 });
+  assert.ok(down.errors > 0);
+  await assert.rejects(verifiedSubnets(nets, [".spider.yandex.com"], lookup, { deadline: Date.now() - 1 }), /ran out of time/);
 });
 
 test("reverse DNS sources are validated", () => {
