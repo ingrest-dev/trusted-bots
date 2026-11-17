@@ -55,6 +55,33 @@ test("rejects the malformed CIDRs from the review through the full schema", (t) 
   }
 });
 
+test("accepts a SAIL source that names a service", (t) => {
+  const result = validateFixture(t, {
+    verification: [{
+      type: "cidr",
+      sources: [{
+        type: "http-sail",
+        url: "https://claude.com/.well-known/sail",
+        service: "Claude-Agent",
+      }],
+    }],
+  });
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test("rejects a SAIL source without a service", (t) => {
+  for (const source of [
+    { type: "http-sail", url: "https://claude.com/.well-known/sail" },
+    { type: "http-sail", url: "https://claude.com/.well-known/sail", service: "" },
+    { type: "http-sail", url: "https://claude.com/.well-known/sail", selector: "Claude-Agent" },
+  ]) {
+    const result = validateFixture(t, {
+      verification: [{ type: "cidr", sources: [source] }],
+    });
+    assert.equal(result.status, 1, `${JSON.stringify(source)}: ${result.stderr}`);
+  }
+});
+
 test("accepts a registrable domain operator", (t) => {
   for (const operator of ["openai.com", "perplexity.ai", "sbintuitions.co.jp", "9bot.com.br", "xn--p1ai.xn--p1ai"]) {
     const result = validateFixture(t, { operator });
@@ -102,6 +129,38 @@ test("requires Web Bot Auth when the User-Agent pattern is empty", (t) => {
   }
 });
 
+test("accepts a botnet with no patterns, instances or verification", (t) => {
+  const result = validateFixture(t, {
+    categories: ["botnet"],
+    pattern: { accepted: [], forbidden: [] },
+    verification: [],
+  });
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test("rejects every other botnet shape", (t) => {
+  for (const changes of [
+    // Signer verification does not make a botnet a signature-only bot.
+    {
+      verification: [{
+        type: "web-bot-auth",
+        directory: "https://chatgpt.com/.well-known/http-message-signatures-directory",
+      }],
+    },
+    { pattern: { accepted: ["TestBot"], forbidden: [] } },
+    { pattern: { accepted: [], forbidden: ["TestBot"] } },
+    { instances: { accepted: [], rejected: [] } },
+  ]) {
+    const result = validateFixture(t, {
+      categories: ["botnet"],
+      pattern: { accepted: [], forbidden: [] },
+      verification: [],
+      ...changes,
+    });
+    assert.equal(result.status, 1, `${JSON.stringify(changes)}: ${result.stderr}`);
+  }
+});
+
 test("rejects User-Agent instances for signature-only bots", (t) => {
   for (const instances of [
     { accepted: ["AnyBot/1"], rejected: [] },
@@ -140,5 +199,31 @@ test("rejects malformed Web Bot Auth directories", (t) => {
       verification: [{ type: "web-bot-auth", directory }],
     });
     assert.equal(result.status, 1, `${directory}: ${result.stderr}`);
+  }
+});
+
+test("accepts a signature-only bot with a Poppy client_id", (t) => {
+  const result = validateFixture(t, {
+    pattern: { accepted: [], forbidden: [] },
+    verification: [{ type: "poppy", client_id: "https://muse.ai/poppy/agent.json" }],
+  });
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test("rejects malformed Poppy client_ids", (t) => {
+  for (const verify of [
+    { type: "poppy", client_id: "http://muse.ai/poppy/agent.json" },
+    { type: "poppy", client_id: "https://muse.ai/" },
+    { type: "poppy", client_id: "https://muse.ai:8443/poppy/agent.json" },
+    { type: "poppy", client_id: "https://muse.ai/poppy/agent.json?v=1" },
+    { type: "poppy", client_id: "https://muse.ai/poppy/../agent.json" },
+    { type: "poppy", client_id: "https://muse.ai/poppy/./agent.json" },
+    { type: "poppy", client_id: "https://muse.ai/.." },
+    { type: "poppy", client_id: "https://muse.ai/." },
+    { type: "poppy", client_id: "https://muse.ai/poppy/agent.json", extra: true },
+    { type: "poppy" },
+  ]) {
+    const result = validateFixture(t, { verification: [verify] });
+    assert.equal(result.status, 1, `${JSON.stringify(verify)}: ${result.stderr}`);
   }
 });

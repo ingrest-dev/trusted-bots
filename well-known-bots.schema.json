@@ -102,11 +102,79 @@
                   }
                 }
               },
-              "verification": {
+              "instances": false
+            },
+            "anyOf": [
+              {
+                "properties": {
+                  "verification": {
+                    "type": "array",
+                    "contains": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/webBotAuthVerification"
+                        },
+                        {
+                          "$ref": "#/$defs/poppyVerification"
+                        }
+                      ]
+                    }
+                  }
+                }
+              },
+              {
+                "description": "A botnet has no User-Agent: IP reputation data names it, and nothing verifies it.",
+                "properties": {
+                  "categories": {
+                    "type": "array",
+                    "contains": {
+                      "const": "botnet"
+                    }
+                  },
+                  "verification": {
+                    "type": "array",
+                    "maxItems": 0
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "description": "A botnet has no User-Agent patterns, no instances and no verification: IP reputation data names it, and nothing verifies it.",
+          "if": {
+            "type": "object",
+            "required": [
+              "categories"
+            ],
+            "properties": {
+              "categories": {
                 "type": "array",
                 "contains": {
-                  "$ref": "#/$defs/webBotAuthVerification"
+                  "const": "botnet"
                 }
+              }
+            }
+          },
+          "then": {
+            "type": "object",
+            "properties": {
+              "pattern": {
+                "type": "object",
+                "properties": {
+                  "accepted": {
+                    "type": "array",
+                    "maxItems": 0
+                  },
+                  "forbidden": {
+                    "type": "array",
+                    "maxItems": 0
+                  }
+                }
+              },
+              "verification": {
+                "type": "array",
+                "maxItems": 0
               },
               "instances": false
             }
@@ -139,6 +207,7 @@
         "amazon",
         "apple",
         "archive",
+        "botnet",
         "feedfetcher",
         "google",
         "meta",
@@ -232,6 +301,9 @@
         },
         {
           "$ref": "#/$defs/webBotAuthVerification"
+        },
+        {
+          "$ref": "#/$defs/poppyVerification"
         }
       ]
     },
@@ -251,6 +323,25 @@
           "type": "string",
           "format": "uri",
           "pattern": "^https://(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\\.)+[a-z](?:[a-z0-9-]*[a-z0-9])?/\\.well-known/http-message-signatures-directory(?![\\s\\S])"
+        }
+      }
+    },
+    "poppyVerification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "client_id"
+      ],
+      "properties": {
+        "type": {
+          "const": "poppy"
+        },
+        "client_id": {
+          "description": "Canonical HTTPS URL of the agent's Personal Agent Protocol client metadata document. It has no port, credentials, query or fragment.",
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\\.)+[a-z](?:[a-z0-9-]*[a-z0-9])?(?:/(?!\\.\\.?(?:/|(?![\\s\\S])))[A-Za-z0-9._~-]+)+(?![\\s\\S])"
         }
       }
     },
@@ -349,6 +440,9 @@
         },
         {
           "$ref": "#/$defs/httpTextSource"
+        },
+        {
+          "$ref": "#/$defs/httpSailSource"
         }
       ]
     },
@@ -415,6 +509,28 @@
         },
         "url": {
           "$ref": "#/$defs/httpUrl"
+        }
+      }
+    },
+    "httpSailSource": {
+      "description": "A Source Address Identity List (SAIL, draft-kelley-webbotauth-sail): a TOML file that names services and the IP prefixes each one egresses from. `service` selects one service; its prefix sets' IPv4 and IPv6 prefixes are the source's ranges.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "url",
+        "service"
+      ],
+      "properties": {
+        "type": {
+          "const": "http-sail"
+        },
+        "url": {
+          "$ref": "#/$defs/httpUrl"
+        },
+        "service": {
+          "type": "string",
+          "minLength": 1
         }
       }
     },

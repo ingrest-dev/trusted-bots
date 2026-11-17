@@ -55,6 +55,32 @@ test("check mode rejects pattern and verification errors", (t) => {
   }
 });
 
+test("check mode accepts a SAIL source that names a service", (t) => {
+  const result = fixture(t, {
+    verification: [{
+      type: "cidr",
+      sources: [{
+        type: "http-sail",
+        url: "https://claude.com/.well-known/sail",
+        service: "Claude-Agent",
+      }],
+    }],
+  }).run("--check");
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test("check mode rejects a SAIL source without a string service", (t) => {
+  for (const service of [undefined, "", 1, null, ["Claude-Agent"]]) {
+    const source = { type: "http-sail", url: "https://claude.com/.well-known/sail" };
+    if (service !== undefined) source.service = service;
+    const result = fixture(t, {
+      verification: [{ type: "cidr", sources: [source] }],
+    }).run("--check");
+    assert.equal(result.status, 1, `${JSON.stringify(service)}: ${result.stderr}`);
+    assert.match(result.stderr, /service/);
+  }
+});
+
 test("check mode reports a missing Web Bot Auth schema pattern", (t) => {
   for (const pattern of [undefined, null, ""]) {
     const data = fixture(t);
@@ -171,6 +197,45 @@ test("check mode rejects empty User-Agent patterns without Web Bot Auth", (t) =>
   }
 });
 
+test("check mode accepts a botnet with no User-Agent pattern and no verification", (t) => {
+  const result = fixture(t, {
+    categories: ["botnet"],
+    pattern: { accepted: [], forbidden: [] },
+    verification: [],
+    instances: undefined,
+  }).run("--check");
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test("check mode rejects a botnet that claims verification or a forbidden pattern", (t) => {
+  for (const changes of [
+    // A User-Agent pattern does not exempt a botnet from its shape.
+    { pattern: { accepted: ["TestBot"], forbidden: [] } },
+    {
+      pattern: { accepted: ["TestBot"], forbidden: [] },
+      instances: { accepted: ["TestBot/1"], rejected: [] },
+    },
+    {
+      // IP reputation names a botnet; nothing verifies it.
+      verification: [{
+        type: "web-bot-auth",
+        directory: "https://chatgpt.com/.well-known/http-message-signatures-directory",
+      }],
+    },
+    { pattern: { accepted: [], forbidden: ["TestBot"] } },
+    { instances: { accepted: [], rejected: [] } },
+  ]) {
+    const result = fixture(t, {
+      categories: ["botnet"],
+      pattern: { accepted: [], forbidden: [] },
+      verification: [],
+      instances: undefined,
+      ...changes,
+    }).run("--check");
+    assert.equal(result.status, 1, result.stderr);
+  }
+});
+
 test("check mode rejects User-Agent instances for signature-only bots", (t) => {
   for (const instances of [
     { accepted: ["AnyBot/1"], rejected: [] },
@@ -221,4 +286,56 @@ test("generate mode normalizes formatting and preserves bot definitions", (t) =>
   assert.equal(result.status, 0, result.stderr);
   assert.equal(readFileSync(data.file, "utf8"), JSON.stringify(data.bots, null, 2) + "\n");
   assert.equal(data.run("--check").status, 0);
+});
+
+const clientId = "https://muse.ai/poppy/agent.json";
+
+test("check mode accepts a signature-only bot with a Poppy client_id", (t) => {
+  const result = fixture(t, {
+    pattern: { accepted: [], forbidden: [] },
+    verification: [{ type: "poppy", client_id: clientId }],
+    instances: undefined,
+  }).run("--check");
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test("check mode rejects a Poppy client_id assigned to two bots", (t) => {
+  const data = fixture(t, { verification: [{ type: "poppy", client_id: clientId }] });
+  data.bots.push({ ...data.bots[0], id: "other-bot" });
+  writeFileSync(data.file, JSON.stringify(data.bots, null, 2) + "\n");
+  const result = data.run("--check");
+  assert.equal(result.status, 1, result.stderr);
+  assert.match(result.stderr, /Poppy client_id is already assigned to a bot/);
+});
+
+test("check mode rejects non-canonical Poppy client_ids", (t) => {
+  for (const verify of [
+    { type: "poppy", client_id: "http://muse.ai/poppy/agent.json" },
+    { type: "poppy", client_id: "https://muse.ai" },
+    { type: "poppy", client_id: "https://muse.ai/" },
+    { type: "poppy", client_id: "https://Muse.ai/poppy/agent.json" },
+    { type: "poppy", client_id: "https://muse.ai:443/poppy/agent.json" },
+    { type: "poppy", client_id: "https://user@muse.ai/poppy/agent.json" },
+    { type: "poppy", client_id: "https://127.0.0.1/poppy/agent.json" },
+    { type: "poppy", client_id: "https://localhost/poppy/agent.json" },
+    { type: "poppy", client_id: "https://muse.ai/poppy/agent.json?v=1" },
+    { type: "poppy", client_id: "https://muse.ai/poppy/agent.json#x" },
+    { type: "poppy", client_id: "https://muse.ai/poppy/../agent.json" },
+    { type: "poppy", client_id: "https://muse.ai/poppy/./agent.json" },
+    { type: "poppy", client_id: clientId, jwks_uri: "https://muse.ai/poppy/jwks.json" },
+    { type: "poppy" },
+  ]) {
+    const result = fixture(t, { verification: [verify] }).run("--check");
+    assert.equal(result.status, 1, `${JSON.stringify(verify)}: ${result.stderr}`);
+  }
+});
+
+test("check mode reports a missing Poppy schema pattern", (t) => {
+  const data = fixture(t);
+  const schema = JSON.parse(readFileSync(data.schemaFile, "utf8"));
+  delete schema.$defs.poppyVerification.properties.client_id.pattern;
+  writeFileSync(data.schemaFile, JSON.stringify(schema));
+  const result = data.run("--check");
+  assert.equal(result.status, 1, result.stderr);
+  assert.match(result.stderr, /Missing Poppy client_id pattern in well-known-bots\.schema\.json/);
 });

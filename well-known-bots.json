@@ -2409,6 +2409,10 @@
             "selector": "$.prefixes[*].ipv4Prefix"
           }
         ]
+      },
+      {
+        "type": "web-bot-auth",
+        "directory": "https://ahrefs.com/.well-known/http-message-signatures-directory"
       }
     ],
     "instances": {
@@ -3212,6 +3216,10 @@
             "selector": "$.prefixes[*][\"ipv4Prefix\",\"ipv6Prefix\"]"
           }
         ]
+      },
+      {
+        "type": "web-bot-auth",
+        "directory": "https://bot.duckduckgo.com/.well-known/http-message-signatures-directory"
       }
     ],
     "instances": {
@@ -13952,6 +13960,32 @@
     "url": "https://developers.facebook.com/docs/sharing/webmasters/web-crawlers/#identify-3"
   },
   {
+    "id": "meta-muse",
+    "categories": [
+      "ai",
+      "ai-agent",
+      "meta"
+    ],
+    "operator": "meta.com",
+    "pattern": {
+      "accepted": [],
+      "forbidden": []
+    },
+    "verification": [
+      {
+        "type": "web-bot-auth",
+        "directory": "https://muse.ai/.well-known/http-message-signatures-directory"
+      },
+      {
+        "type": "poppy",
+        "client_id": "https://muse.ai/poppy/agent.json"
+      }
+    ],
+    "url": "https://muse.ai/blog/poppy-personal-agent-protocol",
+    "description": "Muse, Meta's personal AI agent, acting for one of its users. The Poppy client_id identifies the agent; the user is never identified.",
+    "addition_date": "2026/11/16"
+  },
+  {
     "id": "openai-crawler-search",
     "categories": [
       "ai",
@@ -14831,6 +14865,16 @@
             "selector": "$[*]"
           }
         ]
+      },
+      {
+        "type": "cidr",
+        "sources": [
+          {
+            "type": "http-json",
+            "url": "https://api.checklyhq.com/v1/static-ipv6s",
+            "selector": "$[*]"
+          }
+        ]
       }
     ],
     "instances": {
@@ -15187,6 +15231,17 @@
             "type": "http-text",
             "url": "https://www.cloudflare.com/ips-v6/"
           }
+        ]
+      },
+      {
+        "type": "ip",
+        "ips": [
+          "104.30.128.13",
+          "104.30.129.33",
+          "140.82.60.241",
+          "2a09:bac0:1008:5000:1000::50",
+          "2a09:bac0:1008:5000:1000::48",
+          "2001:19f0:1000:2941:5400:4ff:fe70:2a7a"
         ]
       }
     ],
@@ -15763,6 +15818,10 @@
             "url": "https://www.facebook.com/peering/geofeed"
           }
         ]
+      },
+      {
+        "type": "web-bot-auth",
+        "directory": "https://www.meta.com/.well-known/http-message-signatures-directory"
       }
     ],
     "instances": {
@@ -16049,7 +16108,12 @@
       "ShapBot"
     ],
     "addition_date": "2026/08/18",
-    "verification": []
+    "verification": [
+      {
+        "type": "web-bot-auth",
+        "directory": "https://shapbot.parallel.ai/.well-known/http-message-signatures-directory"
+      }
+    ]
   },
   {
     "id": "zanista-bot",
@@ -20509,7 +20573,12 @@
       ],
       "forbidden": []
     },
-    "verification": [],
+    "verification": [
+      {
+        "type": "web-bot-auth",
+        "directory": "https://exauser.crawler.exa.ai/.well-known/http-message-signatures-directory"
+      }
+    ],
     "instances": {
       "accepted": [
         "Mozilla/5.0 (compatible; ExaUser/1.0; +https://crawler.exa.ai/exauser)"
@@ -20519,7 +20588,7 @@
       ]
     },
     "url": "https://crawler.exa.ai/exauser",
-    "description": "Exa on-demand fetches for other AI products. The product behind a request is not identified. Exa signs with the same Web Bot Auth key as exa-searchbot, so a signature identifies Exa, not this fetcher.",
+    "description": "Exa on-demand fetches for other AI products. The product behind a request is not identified. Signed with Web Bot Auth from a key directory separate from exa-searchbot's.",
     "addition_date": "2026/11/11"
   },
   {
@@ -20699,7 +20768,12 @@
       ],
       "forbidden": []
     },
-    "verification": [],
+    "verification": [
+      {
+        "type": "web-bot-auth",
+        "directory": "https://shap-user.parallel.ai/.well-known/http-message-signatures-directory"
+      }
+    ],
     "instances": {
       "accepted": [
         "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; Shap-User/0.1.0"
@@ -21045,7 +21119,7 @@
     ],
     "pattern": {
       "accepted": [
-        "^SpaceCowboys Android RSS Reader / [0-9]"
+        "SpaceCowboys Android RSS Reader / "
       ],
       "forbidden": []
     },
@@ -21058,7 +21132,6 @@
       "rejected": [
         "Feeder/2.21.2",
         "SpaceCowboys Android RSS Reader",
-        "NotSpaceCowboys Android RSS Reader / 2.21.2(4040)",
         "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/88.0.4324.146 Safari/537.36"
       ]
     },
@@ -21073,7 +21146,7 @@
     ],
     "pattern": {
       "accepted": [
-        "^ReadYou\\/[0-9]"
+        "ReadYou\\/"
       ],
       "forbidden": []
     },
@@ -21086,12 +21159,317 @@
       "rejected": [
         "ReadYou",
         "ReadYour/0.16.2(47)",
-        "NotReadYou/0.16.2(47)",
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36"
       ]
     },
     "url": "https://github.com/ReadYouApp/ReadYou",
     "description": "Feed and article fetching by the Read You Android RSS reader using its published custom HTTP User-Agent. Runs on the reader's device; this identity does not imply malicious activity or verify a particular client.",
     "addition_date": "2026/11/15"
+  },
+  {
+    "id": "enfilade-crawler",
+    "categories": [
+      "unknown"
+    ],
+    "operator": "enfilade.guide",
+    "pattern": {
+      "accepted": [
+        "EnfiladeBot\\/"
+      ],
+      "forbidden": []
+    },
+    "verification": [
+      {
+        "type": "web-bot-auth",
+        "directory": "https://enfilade.guide/.well-known/http-message-signatures-directory"
+      }
+    ],
+    "instances": {
+      "accepted": [
+        "EnfiladeBot/1.0 (+https://enfilade.guide/en/about-our-crawler)",
+        "EnfiladeBot/1.0 (+https://enfilade.guide/fr/a-propos-du-robot)",
+        "EnfiladeBot/1.0 (+https://enfilade.guide/nl/over-onze-crawler)",
+        "EnfiladeBot/1.0 (+https://enfilade.guide/ru/o-sbore)"
+      ],
+      "rejected": []
+    },
+    "url": "https://enfilade.guide/en/about-our-crawler",
+    "aliases": [
+      "EnfiladeBot"
+    ],
+    "addition_date": "2026/11/14"
+  },
+  {
+    "id": "ai-managed-agents-agent",
+    "categories": [
+      "monitor"
+    ],
+    "operator": "needmomentum.com",
+    "pattern": {
+      "accepted": [
+        "AIManagedAgents-Agent\\/"
+      ],
+      "forbidden": []
+    },
+    "verification": [
+      {
+        "type": "web-bot-auth",
+        "directory": "https://agents.needmomentum.com/.well-known/http-message-signatures-directory"
+      }
+    ],
+    "instances": {
+      "accepted": [
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36 AIManagedAgents-Agent/1.0 (+https://agents.needmomentum.com/)",
+        "AIManagedAgents-Agent/1.0 (+https://agents.needmomentum.com/)"
+      ],
+      "rejected": []
+    },
+    "url": "https://agents.needmomentum.com/",
+    "description": "Website monitoring and operations agent operated by AI Managed Agents. Read-only requests to public pages, follows robots.txt, signs requests with Web Bot Auth.",
+    "addition_date": "2026/11/15"
+  },
+  {
+    "id": "agenttesla-botnet",
+    "categories": [
+      "botnet"
+    ],
+    "pattern": {
+      "accepted": [],
+      "forbidden": []
+    },
+    "verification": [],
+    "description": "Agent Tesla botnet. Named only from IP reputation data: it sends no identifying User-Agent and is never verified.",
+    "addition_date": "2026/11/16"
+  },
+  {
+    "id": "amadey-botnet",
+    "categories": [
+      "botnet"
+    ],
+    "pattern": {
+      "accepted": [],
+      "forbidden": []
+    },
+    "verification": [],
+    "description": "Amadey botnet. Named only from IP reputation data: it sends no identifying User-Agent and is never verified.",
+    "addition_date": "2026/11/16"
+  },
+  {
+    "id": "banker-botnet",
+    "categories": [
+      "botnet"
+    ],
+    "pattern": {
+      "accepted": [],
+      "forbidden": []
+    },
+    "verification": [],
+    "description": "Banker botnet. Named only from IP reputation data: it sends no identifying User-Agent and is never verified.",
+    "addition_date": "2026/11/16"
+  },
+  {
+    "id": "black-botnet",
+    "categories": [
+      "botnet"
+    ],
+    "pattern": {
+      "accepted": [],
+      "forbidden": []
+    },
+    "verification": [],
+    "description": "Black botnet. Named only from IP reputation data: it sends no identifying User-Agent and is never verified.",
+    "addition_date": "2026/11/16"
+  },
+  {
+    "id": "byob-botnet",
+    "categories": [
+      "botnet"
+    ],
+    "pattern": {
+      "accepted": [],
+      "forbidden": []
+    },
+    "verification": [],
+    "description": "BYOB (Build Your Own Botnet) botnet. Named only from IP reputation data: it sends no identifying User-Agent and is never verified.",
+    "addition_date": "2026/11/16"
+  },
+  {
+    "id": "donutmate-botnet",
+    "categories": [
+      "botnet"
+    ],
+    "pattern": {
+      "accepted": [],
+      "forbidden": []
+    },
+    "verification": [],
+    "description": "DonutMate botnet. Named only from IP reputation data: it sends no identifying User-Agent and is never verified.",
+    "addition_date": "2026/11/16"
+  },
+  {
+    "id": "gafgyt-botnet",
+    "categories": [
+      "botnet"
+    ],
+    "pattern": {
+      "accepted": [],
+      "forbidden": []
+    },
+    "verification": [],
+    "description": "Gafgyt botnet. Named only from IP reputation data: it sends no identifying User-Agent and is never verified.",
+    "addition_date": "2026/11/16"
+  },
+  {
+    "id": "guloader-botnet",
+    "categories": [
+      "botnet"
+    ],
+    "pattern": {
+      "accepted": [],
+      "forbidden": []
+    },
+    "verification": [],
+    "description": "GuLoader botnet. Named only from IP reputation data: it sends no identifying User-Agent and is never verified.",
+    "addition_date": "2026/11/16"
+  },
+  {
+    "id": "hajime-botnet",
+    "categories": [
+      "botnet"
+    ],
+    "pattern": {
+      "accepted": [],
+      "forbidden": []
+    },
+    "verification": [],
+    "description": "Hajime botnet. Named only from IP reputation data: it sends no identifying User-Agent and is never verified.",
+    "addition_date": "2026/11/16"
+  },
+  {
+    "id": "kinsing-botnet",
+    "categories": [
+      "botnet"
+    ],
+    "pattern": {
+      "accepted": [],
+      "forbidden": []
+    },
+    "verification": [],
+    "description": "Kinsing botnet. Named only from IP reputation data: it sends no identifying User-Agent and is never verified.",
+    "addition_date": "2026/11/16"
+  },
+  {
+    "id": "mirai-botnet",
+    "categories": [
+      "botnet"
+    ],
+    "pattern": {
+      "accepted": [],
+      "forbidden": []
+    },
+    "verification": [],
+    "description": "Mirai botnet. Named only from IP reputation data: it sends no identifying User-Agent and is never verified.",
+    "addition_date": "2026/11/16"
+  },
+  {
+    "id": "moobot-botnet",
+    "categories": [
+      "botnet"
+    ],
+    "pattern": {
+      "accepted": [],
+      "forbidden": []
+    },
+    "verification": [],
+    "description": "Moobot botnet. Named only from IP reputation data: it sends no identifying User-Agent and is never verified.",
+    "addition_date": "2026/11/16"
+  },
+  {
+    "id": "mozi-botnet",
+    "categories": [
+      "botnet"
+    ],
+    "pattern": {
+      "accepted": [],
+      "forbidden": []
+    },
+    "verification": [],
+    "description": "Mozi botnet. Named only from IP reputation data: it sends no identifying User-Agent and is never verified.",
+    "addition_date": "2026/11/16"
+  },
+  {
+    "id": "remcosrat-botnet",
+    "categories": [
+      "botnet"
+    ],
+    "pattern": {
+      "accepted": [],
+      "forbidden": []
+    },
+    "verification": [],
+    "description": "Remcos RAT botnet. Named only from IP reputation data: it sends no identifying User-Agent and is never verified.",
+    "addition_date": "2026/11/16"
+  },
+  {
+    "id": "stealc-botnet",
+    "categories": [
+      "botnet"
+    ],
+    "pattern": {
+      "accepted": [],
+      "forbidden": []
+    },
+    "verification": [],
+    "description": "StealC botnet. Named only from IP reputation data: it sends no identifying User-Agent and is never verified.",
+    "addition_date": "2026/11/16"
+  },
+  {
+    "id": "zgrat-botnet",
+    "categories": [
+      "botnet"
+    ],
+    "pattern": {
+      "accepted": [],
+      "forbidden": []
+    },
+    "verification": [],
+    "description": "zgRAT botnet. Named only from IP reputation data: it sends no identifying User-Agent and is never verified.",
+    "addition_date": "2026/11/16"
+  },
+  {
+    "id": "anthropic-claude-agent",
+    "categories": [
+      "ai",
+      "ai-agent"
+    ],
+    "operator": "anthropic.com",
+    "pattern": {
+      "accepted": [
+        "Claude-Agent\\/"
+      ],
+      "forbidden": []
+    },
+    "addition_date": "2026/11/16",
+    "url": "https://support.claude.com/en/articles/18234133-how-do-anthropic-hosted-browsers-identify-themselves-when-they-browse-the-web-on-a-user-s-behalf",
+    "verification": [
+      {
+        "type": "cidr",
+        "sources": [
+          {
+            "type": "http-sail",
+            "url": "https://claude.com/.well-known/sail",
+            "service": "Claude-Agent"
+          }
+        ]
+      }
+    ],
+    "instances": {
+      "accepted": [
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko; compatible; Claude-Agent/1.0) Chrome/154.0.0.0 Safari/537.36"
+      ],
+      "rejected": [
+        "Claude-User/1.0"
+      ]
+    }
   }
 ]

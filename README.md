@@ -90,7 +90,8 @@ Each entry in the JSON represents a specific bot or crawler and includes the fol
 - **`categories`** (array): One or more categories the bot belongs to (see [available categories](#available-categories))
 - **`pattern`** (object): Regular expression patterns to match the bot's User-Agent
   - **`accepted`** (array): Regex patterns that must match for User-Agent identification;
-    may be empty only when `verification` contains Web Bot Auth
+    may be empty only when `verification` contains Web Bot Auth or Poppy, or
+    for a `botnet` entry, which has no `verification`
   - **`forbidden`** (array): Regex patterns that, if matched, disqualify the User-Agent
 - **`verification`** (array): Methods for verifying the bot's authenticity (can be empty `[]` if not supported)
 
@@ -122,10 +123,16 @@ Each entry in the JSON represents a specific bot or crawler and includes the fol
 ### Available Categories
 
 ```
-academic, advertising, ai, ai-agent, amazon, apple, archive, feedfetcher,
-google, meta, microsoft, monitor, optimizer, preview, programmatic,
-search-engine, slack, social, tool, unknown, vercel, webhook, yahoo
+academic, advertising, ai, ai-agent, amazon, apple, archive, botnet,
+feedfetcher, google, meta, microsoft, monitor, optimizer, preview,
+programmatic, search-engine, slack, social, tool, unknown, vercel, webhook,
+yahoo
 ```
+
+`botnet` marks a malware family's bot network. A botnet sends no identifying
+User-Agent, so its entry has empty `pattern` arrays, no `instances` and no
+`verification`. IP reputation data names the botnet for an address. That is
+reputation, not verification, so a botnet is never reported as verified.
 
 `ai-agent` marks an AI product fetching a page on demand for a person who is
 waiting on the answer, such as ChatGPT-User, Claude-User or a coding agent. It
@@ -141,7 +148,7 @@ published ranges.
 
 Bot verification allows you to confirm that a request claiming to be from a
 specific bot actually originates from that bot's infrastructure. The supported
-methods are DNS, CIDR, IP, and Web Bot Auth.
+methods are DNS, CIDR, IP, Web Bot Auth, and Poppy.
 
 ### Web Bot Auth Verification
 
@@ -168,9 +175,37 @@ agents. It does not prove a User-Agent or a specific customer agent.
 }
 ```
 
-Entries with an empty `accepted` array are signature-only: User-Agent matching
-must never classify a request as that bot, and these entries cannot have
-`instances` because they have no User-Agent pattern to test. Existing entries
+### Poppy Verification
+
+[Poppy](https://personalagentprotocol.org), the Personal Agent Protocol, lets a
+person's AI agent act for them at a company. Each request carries a
+`Poppy-Session` JWT signed with a key the agent delegated from the keys listed
+in its client metadata. The `client_id` is the HTTPS URL of that metadata
+document, exactly as the agent publishes it. A verifier fetches the document,
+checks that its `client_id` equals the URL and its `jwks_uri` is on the same
+domain, and verifies the session against those keys. A verified session proves
+which agent sent the request, for this method and URL. It never identifies the
+person.
+
+```json
+{
+  "type": "poppy",
+  "client_id": "https://muse.ai/poppy/agent.json"
+}
+```
+
+The URL has a path and no port, credentials, query or fragment. A shared origin
+does not make two client metadata URLs the same agent, so match the exact
+string, and assign each `client_id` to only one bot ID. Add an agent only when
+its operator publishes the `client_id`. Don't add a self-hosted agent that mints
+its own `client_id` per install, or a demo or test agent.
+
+Entries with an empty `accepted` array never take part in User-Agent matching:
+User-Agent matching must never classify a request as that bot, and these
+entries cannot have `instances` because they have no User-Agent pattern to
+test. Most are signature-only, identified by Web Bot Auth or Poppy. A `botnet`
+entry is reputation-only instead: IP reputation data names it, and it has no
+verification at all. Existing entries
 can combine Web Bot Auth with IP or DNS verification, as `google-agent` does.
 
 ### DNS Verification
@@ -227,6 +262,7 @@ CIDR verification checks if the request originates from IP address ranges (CIDR 
 - `http-json` - JSON file with CIDR ranges (or a mix of individual IPs and CIDR ranges)
 - `http-csv` - CSV file with CIDR ranges in the first column (or a mix of individual IPs and CIDR ranges)
 - `http-text` - Plain text file with one CIDR range per line (or a mix of individual IPs and CIDR ranges)
+- `http-sail` - A [Source Address Identity List](https://www.ietf.org/archive/id/draft-kelley-webbotauth-sail-00.html) (SAIL) file. `service` names the service in the file whose prefix sets list the bot's IPv4 and IPv6 prefixes
 
 **Example with JSON source:**
 
@@ -252,6 +288,21 @@ CIDR verification checks if the request originates from IP address ranges (CIDR 
     {
       "type": "http-csv",
       "url": "https://example.com/ip-ranges.csv"
+    }
+  ]
+}
+```
+
+**Example with SAIL source:**
+
+```json
+{
+  "type": "cidr",
+  "sources": [
+    {
+      "type": "http-sail",
+      "url": "https://claude.com/.well-known/sail",
+      "service": "Claude-Agent"
     }
   ]
 }

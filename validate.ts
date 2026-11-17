@@ -22,6 +22,7 @@ const updated = JSON.stringify(data, null, 2) + '\n';
 const schema = JSON.parse(fs.readFileSync(path.join(import.meta.dirname, "well-known-bots.schema.json"), "utf-8")) as {
     $defs?: {
         webBotAuthVerification?: { properties?: { directory?: { pattern?: unknown } } };
+        poppyVerification?: { properties?: { client_id?: { pattern?: unknown } } };
         registrableDomain?: { pattern?: unknown; maxLength?: unknown };
     };
 };
@@ -30,6 +31,11 @@ if (typeof directoryPattern !== "string" || directoryPattern.length === 0) {
     throw new Error("Missing Web Bot Auth directory pattern in well-known-bots.schema.json");
 }
 const WEB_BOT_AUTH_DIRECTORY = new RegExp(directoryPattern);
+const clientIdPattern = schema?.$defs?.poppyVerification?.properties?.client_id?.pattern;
+if (typeof clientIdPattern !== "string" || clientIdPattern.length === 0) {
+    throw new Error("Missing Poppy client_id pattern in well-known-bots.schema.json");
+}
+const POPPY_CLIENT_ID = new RegExp(clientIdPattern);
 const operatorPattern = schema?.$defs?.registrableDomain?.pattern;
 const operatorMaxLength = schema?.$defs?.registrableDomain?.maxLength;
 if (typeof operatorPattern !== "string" || operatorPattern.length === 0 || typeof operatorMaxLength !== "number") {
@@ -62,7 +68,15 @@ function validateJsonSelector(selector: string, item: unknown, verify: unknown, 
 }
 
 function isWebBotAuthDirectory(value: unknown): value is string {
-    if (typeof value !== "string" || !WEB_BOT_AUTH_DIRECTORY.test(value)) return false;
+    return isCanonicalHttpsUrl(value, WEB_BOT_AUTH_DIRECTORY);
+}
+
+function isPoppyClientId(value: unknown): value is string {
+    return isCanonicalHttpsUrl(value, POPPY_CLIENT_ID);
+}
+
+function isCanonicalHttpsUrl(value: unknown, pattern: RegExp): value is string {
+    if (typeof value !== "string" || !pattern.test(value)) return false;
     let url: URL;
     try {
         url = new URL(value);
@@ -89,6 +103,7 @@ if (process.argv[2] === "--generate") {
     }
     const ids = new Set<string>();
     const signingOrigins = new Map<string, string>();
+    const clientIds = new Map<string, string>();
     for (const item of data) {
         if (!isRecord(item)) {
             console.error("Bot entry must be an object:", item);
@@ -140,10 +155,24 @@ if (process.argv[2] === "--generate") {
             console.error("Item is missing required `verification` array field:", item);
             process.exit(1);
         }
+        // A botnet has no User-Agent: IP reputation data names it, and nothing
+        // verifies it. Every other bot without a pattern is signature-only.
+        const isBotnet = item.categories.includes("botnet");
+        if (isBotnet &&
+            (item.pattern.accepted.length !== 0 ||
+                item.pattern.forbidden.length !== 0 ||
+                item.verification.length !== 0 ||
+                typeof item.instances !== "undefined")) {
+            console.error("A botnet has no User-Agent patterns, no instances and no verification:", item);
+            process.exit(1);
+        }
         if (item.pattern.accepted.length === 0 &&
             (item.pattern.forbidden.length !== 0 ||
-                !item.verification.some((verify) => isRecord(verify) && verify.type === "web-bot-auth"))) {
-            console.error("A bot without a User-Agent pattern needs Web Bot Auth verification and no forbidden patterns:", item);
+                !(isBotnet
+                    ? item.verification.length === 0
+                    : item.verification.some((verify) => isRecord(verify) &&
+                        (verify.type === "web-bot-auth" || verify.type === "poppy"))))) {
+            console.error("A bot without a User-Agent pattern needs Web Bot Auth or Poppy verification (or, for a botnet, no verification) and no forbidden patterns:", item);
             process.exit(1);
         }
         if (item.pattern.accepted.length === 0 && typeof item.instances !== "undefined") {
@@ -167,6 +196,17 @@ if (process.argv[2] === "--generate") {
                     process.exit(1);
                 }
                 signingOrigins.set(origin, item.id);
+            } else if (verify.type === "poppy") {
+                if (!isPoppyClientId(verify.client_id) || Object.keys(verify).length !== 2) {
+                    console.error("Poppy client_id must be a canonical HTTPS URL with a path and no query:", item, verify);
+                    process.exit(1);
+                }
+                const existingId = clientIds.get(verify.client_id);
+                if (existingId !== undefined) {
+                    console.error("Poppy client_id is already assigned to a bot:", verify.client_id, existingId, item.id);
+                    process.exit(1);
+                }
+                clientIds.set(verify.client_id, item.id);
             } else if (verify.type === "cidr") {
                 if (!isArray(verify.sources)) {
                     console.error("Item cidr validation entry is missing required `sources` array field:", item, verify);
@@ -177,8 +217,8 @@ if (process.argv[2] === "--generate") {
                         console.error("Verification source must be an object:", item, verify, source);
                         process.exit(1);
                     }
-                    if (source.type !== "http-json" && source.type !== "http-csv" && source.type !== "http-text") {
-                        console.error("Cidr source `type` must be a valid type (currently `http-json`, `http-csv`, and `http-text` are supported)", item, verify, source);
+                    if (source.type !== "http-json" && source.type !== "http-csv" && source.type !== "http-text" && source.type !== "http-sail") {
+                        console.error("Cidr source `type` must be a valid type (currently `http-json`, `http-csv`, `http-text`, and `http-sail` are supported)", item, verify, source);
                         process.exit(1);
                     }
 
@@ -193,6 +233,11 @@ if (process.argv[2] === "--generate") {
                             process.exit(1);
                         }
                         validateJsonSelector(source.selector, item, verify, source);
+                    }
+
+                    if (source.type === "http-sail" && (typeof source.service !== "string" || source.service.length === 0)) {
+                        console.error("Cidr source `service` must be a non-empty string for http-sail type", item, verify, source);
+                        process.exit(1);
                     }
                 }
             } else if (verify.type === "dns") {
@@ -260,7 +305,7 @@ if (process.argv[2] === "--generate") {
                     process.exit(1);
                 }
             } else {
-                console.error("Item validation entry is incorrect, only `ip`, `dns`, `cidr`, and `web-bot-auth` are supported:", item, verify);
+                console.error("Item validation entry is incorrect, only `ip`, `dns`, `cidr`, `web-bot-auth`, and `poppy` are supported:", item, verify);
                 process.exit(1);
             }
         }
