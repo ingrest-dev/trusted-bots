@@ -414,6 +414,11 @@
         "type": "http-json",
         "url": "https://api.checklyhq.com/v1/static-ips",
         "selector": "$[*]"
+      },
+      {
+        "type": "http-json",
+        "url": "https://api.checklyhq.com/v1/static-ipv6s",
+        "selector": "$[*]"
       }
     ]
   },
