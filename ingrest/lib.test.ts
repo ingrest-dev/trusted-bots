@@ -43,7 +43,6 @@ test("pinned sources are checked and catalog changes are only reported", () => {
   const pinnedFile = path.join(dir, "bots.json");
   const catalogFile = path.join(dir, "catalog.json");
   const ours = JSON.parse(fs.readFileSync(path.join(import.meta.dirname, "bots.json"), "utf-8"));
-  const real = JSON.parse(fs.readFileSync(path.join(import.meta.dirname, "..", "well-known-bots.json"), "utf-8"));
   const pinned = (edit: (bots: any) => void) => {
     const copy = structuredClone(ours);
     edit(copy);
@@ -57,8 +56,9 @@ test("pinned sources are checked and catalog changes are only reported", () => {
   assert.match(pinned((b) => (b["google-crawler"].sources = [])), /google-crawler: has no IP range source/);
 
   const { bots } = loadBots();
+  const catalog = bots.map((b) => ({ id: b.id, verification: [{ type: "cidr", sources: b.sources.filter((s) => s.type !== "asn-rdns") }] }));
   const drift = (edit: (bots: { id: string; verification: any[] }[]) => void) => {
-    const copy = structuredClone(real);
+    const copy = structuredClone(catalog);
     edit(copy);
     fs.writeFileSync(catalogFile, JSON.stringify(copy));
     return catalogDrift(bots, catalogFile);
